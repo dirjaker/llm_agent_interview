@@ -2081,6 +2081,801 @@ class MultilingualMultimodalRAG:
 
 ---
 
+### Q25: Graph RAG 的详细实现？⭐⭐⭐
+
+**答：**
+
+Graph RAG 是将**知识图谱**与传统向量 RAG 结合的技术方案，核心优势在于能够捕获实体之间的关系，解决传统 RAG 难以处理的多跳推理和全局性问题。
+
+**1. 知识图谱构建流程：**
+
+```python
+import networkx as nx
+from langchain_openai import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+
+class GraphRAGIndexer:
+    """Graph RAG 索引构建"""
+
+    def __init__(self):
+        self.llm = ChatOpenAI(model="gpt-4o")
+        self.graph = nx.Graph()
+
+    def extract_entities_and_relations(self, text: str) -> list[dict]:
+        """从文本中抽取实体和关系"""
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "从文本中抽取所有实体和关系，以JSON格式返回。"
+             "格式: [{\"source\": \"实体A\", \"relation\": \"关系\", \"target\": \"实体B\"}]"),
+            ("user", "{text}")
+        ])
+        chain = prompt | self.llm
+        result = chain.invoke({"text": text})
+        return json.loads(result.content)
+
+    def build_communities(self):
+        """使用 Leiden 算法进行社区检测"""
+        import leidenalg as la
+        # 将 NetworkX 图转为 igraph
+        import igraph as ig
+        G_ig = ig.Graph.from_networkx(self.graph)
+
+        # Leiden 社区检测
+        partition = la.find_partition(G_ig, la.ModularityVertexPartition)
+        self.communities = partition
+        return partition
+
+    def generate_community_summaries(self):
+        """为每个社区生成全局摘要"""
+        summaries = {}
+        for community_id in set(self.communities.membership):
+            # 收集社区内的所有节点和边
+            nodes = [n for n, c in zip(self.graph.nodes(), self.communities.membership)
+                     if c == community_id]
+            subgraph = self.graph.subgraph(nodes)
+
+            # 用 LLM 生成社区摘要
+            context = self._subgraph_to_text(subgraph)
+            summary = self.llm.invoke(
+                f"为以下知识图谱社区生成摘要：\n{context}"
+            )
+            summaries[community_id] = summary.content
+        return summaries
+```
+
+**2. 查询时的检索融合策略：**
+
+```python
+class GraphRAGRetriever:
+    """Graph RAG 检索器：融合图查询与向量检索"""
+
+    def local_search(self, query: str, top_k: int = 5):
+        """局部检索：找到与 query 相关的实体，沿图遍历"""
+        # 向量检索找到相关实体
+        query_embedding = self.embedder.encode(query)
+        relevant_entities = self.vector_store.search(query_embedding, top_k=top_k)
+
+        # 从图中扩展邻居节点（1-2 跳）
+        context_chunks = []
+        for entity in relevant_entities:
+            neighbors = list(self.graph.neighbors(entity["name"]))
+            for neighbor in neighbors[:3]:
+                edge_data = self.graph[entity["name"]][neighbor]
+                context_chunks.append(edge_data.get("description", ""))
+        return context_chunks
+
+    def global_search(self, query: str):
+        """全局检索：利用社区摘要回答宏观问题"""
+        # 用社区摘要构建上下文
+        community_contexts = []
+        for comm_id, summary in self.community_summaries.items():
+            community_contexts.append(summary)
+
+        # Map-Reduce：让 LLM 逐个分析社区摘要
+        partial_answers = []
+        for ctx in community_contexts:
+            answer = self.llm.invoke(
+                f"基于以下社区知识摘要，回答问题：{query}\n\n摘要：{ctx}"
+            )
+            partial_answers.append(answer.content)
+
+        # Reduce：汇总所有部分答案
+        final = self.llm.invoke(
+            f"综合以下分析，回答问题：{query}\n\n" + "\n".join(partial_answers)
+        )
+        return final.content
+```
+
+**3. 与 Microsoft GraphRAG 的对应关系：**
+
+Microsoft GraphRAG 论文核心创新点：
+- **实体/关系抽取**：用 LLM 从文档中自动构建知识图谱
+- **社区检测**：使用 Leiden 算法对图进行层次化社区划分
+- **社区摘要**：为每个社区用 LLM 生成描述性摘要（Community Report）
+- **双重检索**：Local Search（实体级检索）+ Global Search（社区级检索）
+
+**追问：**
+- Graph RAG 和纯向量 RAG 各自适合什么场景？实体关系密集、需要多跳推理时用 Graph RAG；简单问答用纯向量 RAG
+- Graph RAG 的构建成本如何？LLM 抽取实体关系的成本很高，大文档可能需要数小时
+- 社区检测的粒度如何选择？层次化社区检测可以同时保留粗粒度和细粒度，查询时根据问题复杂度选择
+
+---
+
+### Q26: 多模态 RAG 怎么实现？⭐⭐⭐
+
+**答：**
+
+多模态 RAG 指系统能够处理和检索**文本、图片、表格、代码**等不同类型的内容，核心挑战在于**跨模态表示对齐**和**多模态内容理解**。
+
+**1. 多模态索引构建：**
+
+```python
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+import torch
+
+class MultimodalRAGIndexer:
+    """多模态 RAG 索引构建"""
+
+    def __init__(self):
+        # CLIP 模型：统一文本和图片的向量空间
+        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
+        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+        self.text_embedder = SentenceTransformer("BAAI/bge-large-zh")
+
+    def index_image(self, image_path: str, metadata: dict):
+        """索引图片：直接用 CLIP 编码图片"""
+        image = Image.open(image_path)
+        inputs = self.clip_processor(images=image, return_tensors="pt")
+        with torch.no_grad():
+            image_embedding = self.clip_model.get_image_features(**inputs)
+        # 同时用多模态 LLM 生成图片描述，便于文本检索
+        description = self.vlm_describe(image_path)  # 如 GPT-4o 描述图片
+        text_embedding = self.text_embedder.encode(description)
+
+        # 存储两种向量：图片向量 + 文本描述向量
+        self.vector_store.add(
+            id=f"img_{metadata['doc_id']}",
+            image_embedding=image_embedding.numpy(),
+            text_embedding=text_embedding,
+            content=description,
+            metadata={"type": "image", "path": image_path, **metadata}
+        )
+
+    def index_table(self, table_data: dict, metadata: dict):
+        """索引表格：同时存 Markdown 格式和自然语言描述"""
+        markdown = self._table_to_markdown(table_data)
+        description = self._table_to_nl_description(table_data)
+        # 用描述做 Embedding，但同时保留原始表格供 LLM 理解
+        embedding = self.text_embedder.encode(description)
+        self.vector_store.add(
+            content=markdown,
+            embedding=embedding,
+            metadata={"type": "table", "description": description, **metadata}
+        )
+
+    def index_text(self, text: str, metadata: dict):
+        """索引纯文本"""
+        chunks = self.recursive_split(text, chunk_size=512)
+        for chunk in chunks:
+            embedding = self.text_embedder.encode(chunk)
+            self.vector_store.add(content=chunk, embedding=embedding, metadata=metadata)
+```
+
+**2. 跨模态检索与生成：**
+
+```python
+class MultimodalRAGRetriever:
+    """多模态检索与生成"""
+
+    def retrieve(self, query: str, modalities: list[str] = None) -> list:
+        """统一检索入口"""
+        results = []
+
+        # 文本向量检索（同时匹配文本和图片描述）
+        text_emb = self.text_embedder.encode(query)
+        text_results = self.vector_store.search(text_emb, top_k=10)
+        results.extend(text_results)
+
+        # 如果查询意图包含视觉需求，用 CLIP 做图片检索
+        if self._needs_visual(query):
+            inputs = self.clip_processor(text=query, return_tensors="pt")
+            with torch.no_grad():
+                query_img_emb = self.clip_model.get_text_features(**inputs)
+            img_results = self.vector_store.search_image(query_img_emb, top_k=5)
+            results.extend(img_results)
+
+        # Reranking
+        return self.reranker.rerank(query, results)
+
+    def generate(self, query: str, context_docs: list) -> str:
+        """多模态生成：构造多模态消息"""
+        messages = [{"role": "system", "content": "基于参考资料回答问题。"}]
+
+        content_parts = []
+        for doc in context_docs:
+            if doc["metadata"]["type"] == "image":
+                # 图片直接以 base64 传入多模态 LLM
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{doc['base64']}"}
+                })
+            else:
+                content_parts.append({"type": "text", "text": doc["content"]})
+
+        content_parts.append({"type": "text", "text": f"\n\n用户问题：{query}"})
+        messages.append({"role": "user", "content": content_parts})
+
+        response = self.llm.invoke(messages)  # 如 GPT-4o
+        return response.content
+```
+
+**3. 关键技术点：**
+- **跨模态 Embedding**：CLIP 可以将文本和图片映射到同一向量空间，实现跨模态检索
+- **表格理解**：用 Markdown 格式保留表格结构，同时生成自然语言描述辅助检索
+- **图片描述（VLM）**：用视觉语言模型为图片生成文字描述，建立文本索引
+- **多模态 LLM 生成**：GPT-4o 等模型可以直接接受图片+文本输入，避免信息丢失
+
+**追问：**
+- 纯文本 Embedding 和 CLIP Embedding 应该分开存还是合并存？建议分开存，检索时分别查询再合并排序，因为两者的向量空间不同
+- 表格的向量化有哪些方案？Markdown 序列化 + 文本 Embedding 是最简单的；复杂表格可以提取行/列关系做结构化索引
+- 多模态 RAG 的评估怎么做？除了文本匹配度，还需要评估图片引用的准确性，可以用人工标注 + 自动化结合
+
+---
+
+### Q27: 什么是 Contextual Retrieval？Anthropic 的方案是什么？⭐⭐
+
+**答：**
+
+Contextual Retrieval 是 Anthropic 在 2024 年提出的一种**检索增强策略**，核心思想是：在对文档分块（Chunking）时，为每个 Chunk **添加上下文信息**，使其脱离原文后仍能被正确理解和检索。
+
+**问题背景：** 传统 RAG 将文档切成独立的 Chunk，每个 Chunk 只包含自己的文本，缺少原始文档的上下文。比如一个 Chunk 内容是"该公司去年收入增长 30%"，但"该公司"指的是谁、"去年"是哪一年，检索系统无法得知。
+
+**Anthropic 的解决方案：**
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+
+def add_context_to_chunk(chunk: str, full_document: str) -> str:
+    """为每个 Chunk 生成上下文前缀"""
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=200,
+        messages=[{
+            "role": "user",
+            "content": f"""<document>
+{full_document}
+</document>
+
+<chunk>
+{chunk}
+</chunk>
+
+请为上面的 chunk 提供一段简短的上下文说明（不超过 50 字），使其独立阅读时也能被正确理解。
+说明应包含：文档主题、相关的时间/地点/人物等背景信息。"""
+        }]
+    )
+    return response.content[0].text
+
+def contextual_rag_index(documents: list[dict]):
+    """Contextual RAG 索引流程"""
+    for doc in documents:
+        chunks = split_document(doc["content"], chunk_size=500)
+
+        for chunk in chunks:
+            # 1. 为每个 Chunk 生成上下文前缀
+            context_prefix = add_context_to_chunk(chunk, doc["content"])
+
+            # 2. 拼接上下文和原文
+            enhanced_chunk = f"{context_prefix}\n\n{chunk}"
+
+            # 3. 同时建立向量索引和 BM25 索引
+            embedding = embed(enhanced_chunk)
+            bm25_index.add(enhanced_chunk)
+
+            vector_store.add(
+                content=enhanced_chunk,
+                original_chunk=chunk,  # 保留原始 Chunk
+                embedding=embedding
+            )
+```
+
+**混合检索策略（BM25 + 向量）：**
+
+```python
+def contextual_retrieve(query: str, top_k: int = 20):
+    """Contextual Retrieval 检索流程"""
+    # 1. 向量检索（语义相似）
+    vector_results = vector_store.search(embed(query), top_k=top_k)
+
+    # 2. BM25 检索（关键词匹配）
+    bm25_results = bm25_index.search(query, top_k=top_k)
+
+    # 3. 融合排序（RRF）
+    combined = reciprocal_rank_fusion(vector_results, bm25_results)
+
+    # 4. Reranking
+    reranked = reranker.rerank(query, combined[:50])
+    return reranked[:10]
+```
+
+**实际效果（Anthropic 公布的数据）：**
+- 单独 Contextual Embedding：检索失败率降低 **35%**
+- Contextual Embedding + BM25：检索失败率降低 **49%**
+- 再加 Reranking：检索失败率降低 **67%**
+
+**追问：**
+- 生成上下文的 LLM 调用成本怎么控制？Anthropic 建议用 Batch API，成本降低 50%；也可以用小模型或规则生成
+- 和 Parent Document Retriever 有什么区别？Parent Document 是检索小块但返回大块；Contextual Retrieval 是在小块上附加上下文摘要，两者可以结合使用
+- 这个方法适合所有场景吗？对于结构化程度高（如 FAQ）的文档效果有限，更适合叙事性、上下文依赖强的文档
+
+---
+
+### Q28: 如何处理 RAG 中的「幻觉」问题？⭐⭐⭐
+
+**答：**
+
+RAG 中的幻觉分为两类：**检索引入的幻觉**（检索到了错误/不相关内容，LLM 基于此编造答案）和**生成引入的幻觉**（即使上下文正确，LLM 仍可能添加不存在的信息）。处理方法需要从检测和预防两个维度入手。
+
+**1. 忠实度检测（Faithfulness Detection）：**
+
+```python
+from langchain_openai import ChatOpenAI
+
+class HallucinationDetector:
+    """幻觉检测器"""
+
+    def __init__(self):
+        self.llm = ChatOpenAI(model="gpt-4o")
+
+    def check_faithfulness(self, answer: str, context: str) -> dict:
+        """检查答案是否忠实于提供的上下文"""
+        prompt = f"""请分析以下回答是否完全基于参考资料。
+
+参考资料：
+{context}
+
+回答：
+{answer}
+
+请逐句检查回答中的每个声明：
+1. "supported" - 有明确的参考资料支持
+2. "unsupported" - 参考资料中没有相关信息
+3. "contradicted" - 与参考资料矛盾
+
+以 JSON 格式返回每句的检查结果和整体忠实度分数(0-1)。"""
+
+        result = self.llm.invoke(prompt)
+        analysis = json.loads(result.content)
+        return analysis
+
+    def extract_claims_with_citations(self, answer: str, context: str) -> list:
+        """提取声明并关联引用来源"""
+        prompt = f"""从回答中提取每个事实性声明，并标注其在参考资料中的来源。
+
+参考资料：
+{context}
+
+回答：
+{answer}
+
+返回格式：
+[{{"claim": "声明内容", "citation": "参考资料中的原文", "status": "supported/unsupported"}}]"""
+
+        result = self.llm.invoke(prompt)
+        return json.loads(result.content)
+```
+
+**2. Self-RAG（自反思 RAG）：**
+
+```python
+class SelfRAG:
+    """Self-RAG：让 LLM 自己决定是否需要检索、是否需要反思"""
+
+    def __init__(self):
+        self.llm = ChatOpenAI(model="gpt-4o")
+        self.retriever = VectorRetriever()
+
+    def generate_with_reflection(self, query: str) -> str:
+        # 第一步：判断是否需要检索
+        retrieval_decision = self._should_retrieve(query)
+        if not retrieval_decision:
+            return self.llm.invoke(query).content
+
+        # 第二步：检索并生成
+        docs = self.retriever.retrieve(query, top_k=5)
+        context = "\n".join([d.content for d in docs])
+        answer = self._generate_with_context(query, context)
+
+        # 第三步：自我反思 - 检查每段生成是否被上下文支持
+        reflections = self._reflect(answer, context)
+
+        # 第四步：如果有不支持的内容，重新生成
+        if any(r["status"] == "unsupported" for r in reflections):
+            answer = self._regenerate_with_constraints(
+                query, context,
+                unsupported_parts=[r for r in reflections if r["status"] == "unsupported"]
+            )
+
+        return answer
+
+    def _should_retrieve(self, query: str) -> bool:
+        """用特殊 token 判断是否需要检索"""
+        prompt = f"[INST] {query} [/INST] 该问题是否需要外部知识回答？(yes/no)"
+        result = self.llm.invoke(prompt)
+        return "yes" in result.content.lower()
+
+    def _reflect(self, answer: str, context: str) -> list:
+        """反思：逐句检查生成内容的可靠性"""
+        prompt = f"""请评估以下回答中的每句话是否被参考资料支持。
+
+上下文：{context}
+回答：{answer}
+
+对每句话标注：
+[Retrieval] 是否需要检索支持？(yes/no)
+[IsRel] 检索的内容是否相关？(yes/no)
+[IsSup] 生成内容是否被上下文支持？(fully/partially/no)"""
+
+        result = self.llm.invoke(prompt)
+        return self._parse_reflections(result.content)
+```
+
+**3. 引用溯源（Citation）：**
+
+```python
+def generate_with_citations(query: str, context_docs: list[str]) -> dict:
+    """生成带引用的答案"""
+    prompt = f"""基于以下参考资料回答问题。每句话必须标注来源编号 [1][2]...
+
+参考资料：
+[1] {context_docs[0]}
+[2] {context_docs[1]}
+[3] {context_docs[2]}
+
+问题：{query}
+
+要求：
+1. 只使用参考资料中的信息回答
+2. 每个事实性声明必须标注来源编号
+3. 如果参考资料不足，明确说明"根据现有资料无法完全回答"
+4. 不要添加任何参考资料中没有的信息"""
+
+    answer = llm.invoke(prompt).content
+
+    # 验证引用是否真实存在
+    verified = verify_citations(answer, context_docs)
+    return {"answer": answer, "verified_citations": verified}
+```
+
+**追问：**
+- 幻觉率的量化指标有哪些？常用 RAGAS 的 Faithfulness 指标、引用准确率（Citation Accuracy）、声明支持率（Claim Support Rate）
+- Self-RAG 的性能开销大吗？多轮 LLM 调用会增加 2-3 倍延迟，可以用小模型做判断、大模型做生成来平衡
+- 除了 Self-RAG，还有哪些反幻觉方案？CRAG（Corrective RAG）会评估检索质量，低质量时回退到 Web 搜索；ARES 用合成数据训练幻觉分类器
+
+---
+
+### Q29: RAG 的缓存策略怎么做？⭐⭐
+
+**答：**
+
+RAG 系统的每次请求都会涉及**Embedding 计算、向量检索、LLM 生成**三个环节，成本和延迟都较高。缓存可以在**语义级别**命中相似的历史请求，直接返回缓存结果，显著降低成本和延迟。
+
+**1. 语义缓存（Semantic Cache）：**
+
+```python
+import hashlib
+import numpy as np
+from datetime import datetime
+
+class SemanticCache:
+    """语义缓存：基于 Embedding 相似度的缓存"""
+
+    def __init__(self, similarity_threshold: float = 0.95):
+        self.cache = {}  # {cache_key: {"embedding": ..., "answer": ..., "metadata": ...}}
+        self.threshold = similarity_threshold
+        self.embedder = SentenceTransformer("BAAI/bge-large-zh")
+
+    def get(self, query: str) -> str | None:
+        """查询缓存：语义匹配"""
+        query_embedding = self.embedder.encode(query)
+
+        best_match = None
+        best_score = 0
+
+        for key, entry in self.cache.items():
+            score = self._cosine_similarity(query_embedding, entry["embedding"])
+            if score > best_score:
+                best_score = score
+                best_match = entry
+
+        if best_score >= self.threshold:
+            print(f"Cache HIT! similarity={best_score:.4f}")
+            return best_match["answer"]
+
+        print(f"Cache MISS. best_similarity={best_score:.4f}")
+        return None
+
+    def set(self, query: str, answer: str, metadata: dict = None):
+        """写入缓存"""
+        cache_key = hashlib.md5(query.encode()).hexdigest()
+        embedding = self.embedder.encode(query)
+        self.cache[cache_key] = {
+            "embedding": embedding,
+            "answer": answer,
+            "query": query,
+            "created_at": datetime.now().isoformat(),
+            "hit_count": 0,
+            "metadata": metadata or {}
+        }
+
+    def _cosine_similarity(self, a, b) -> float:
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+```
+
+**2. 多级缓存架构：**
+
+```python
+class RAGCacheManager:
+    """RAG 多级缓存管理器"""
+
+    def __init__(self):
+        # L1: 精确匹配缓存（Redis，TTL 短）
+        self.exact_cache = RedisCache(prefix="rag_exact", ttl=3600)
+        # L2: 语义缓存（Embedding 匹配，TTL 长）
+        self.semantic_cache = SemanticCache(similarity_threshold=0.92)
+        # L3: 检索结果缓存（缓存检索到的文档片段）
+        self.retrieval_cache = RedisCache(prefix="rag_retrieval", ttl=7200)
+
+    def get(self, query: str, context: dict = None) -> dict | None:
+        # L1: 精确匹配（相同 query hash）
+        exact_key = self._hash_key(query, context)
+        cached = self.exact_cache.get(exact_key)
+        if cached:
+            return {"answer": cached, "source": "exact_cache"}
+
+        # L2: 语义匹配
+        semantic_result = self.semantic_cache.get(query)
+        if semantic_result:
+            return {"answer": semantic_result, "source": "semantic_cache"}
+
+        # L3: 检索结果缓存（命中则跳过检索，直接生成）
+        retrieval_key = self._retrieval_key(query)
+        cached_docs = self.retrieval_cache.get(retrieval_key)
+        if cached_docs:
+            answer = self.generator.generate(query, cached_docs)
+            return {"answer": answer, "source": "retrieval_cache"}
+
+        return None  # 全部未命中，走完整 RAG 流程
+```
+
+**3. 缓存失效策略：**
+
+```python
+class CacheInvalidator:
+    """缓存失效管理"""
+
+    def invalidate_on_doc_update(self, doc_id: str):
+        """文档更新时，清除相关缓存"""
+        # 找出所有依赖该文档的缓存条目
+        affected = self.cache.find_by_metadata({"source_doc": doc_id})
+        for entry in affected:
+            self.cache.delete(entry["key"])
+
+    def adaptive_ttl(self, entry: dict) -> int:
+        """自适应 TTL：高频查询缓存更久"""
+        base_ttl = 3600  # 1 小时
+        hit_bonus = min(entry["hit_count"] * 600, 7200)  # 每次命中增加 10 分钟，最多 2 小时
+        return base_ttl + hit_bonus
+```
+
+**效果数据：**
+- 语义缓存命中率 30-50%（取决于查询分布）
+- 命中时延迟从 2-5 秒降低到 **50ms 以下**
+- LLM 调用成本节省 **40-60%**
+
+**追问：**
+- 语义缓存的相似度阈值怎么设？太高会 miss 相似查询，太低会返回不准确的缓存；建议从 0.92 开始，根据业务反馈调整
+- 多轮对话场景如何缓存？需要将对话历史序列化后一起做 Embedding，或者只缓存最后一轮的查询
+- 缓存预热怎么做？从用户日志中提取高频查询，提前运行 RAG 流程并缓存结果
+
+---
+
+### Q30: 如何实现 RAG 的 A/B 测试？⭐⭐⭐
+
+**答：**
+
+RAG 系统的 A/B 测试需要同时评估**检索质量**和**生成质量**，比传统 Web 应用的 A/B 测试更复杂。需要建立离线评估和在线评估两套体系。
+
+**1. A/B 测试框架设计：**
+
+```python
+import random
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+
+@dataclass
+class RAGExperiment:
+    """RAG A/B 测试实验配置"""
+    experiment_id: str
+    name: str
+    variants: dict  # {"control": {...}, "treatment_a": {...}}
+    traffic_split: dict  # {"control": 0.5, "treatment_a": 0.5}
+    metrics: list[str]  # 要追踪的指标列表
+
+class RAGABTestRouter:
+    """RAG A/B 测试路由器"""
+
+    def __init__(self, experiments: list[RAGExperiment]):
+        self.experiments = experiments
+        self.metrics_store = MetricsStore()
+
+    def route(self, query: str, user_id: str) -> dict:
+        """根据用户分流到不同的 RAG 配置"""
+        experiment = self._get_active_experiment(query)
+        variant = self._assign_variant(user_id, experiment)
+
+        # 获取该变体的 RAG 配置
+        config = experiment.variants[variant]
+        rag_pipeline = self._build_pipeline(config)
+
+        # 记录实验上下文
+        experiment_context = {
+            "experiment_id": experiment.experiment_id,
+            "variant": variant,
+            "user_id": user_id,
+            "query": query,
+            "timestamp": datetime.now().isoformat()
+        }
+
+        return {"pipeline": rag_pipeline, "context": experiment_context}
+
+    def _assign_variant(self, user_id: str, experiment: RAGExperiment) -> str:
+        """用户分流：基于 user_id hash 保证同一用户始终在同一组"""
+        hash_val = hash(f"{user_id}_{experiment.experiment_id}") % 100
+        cumulative = 0
+        for variant, ratio in experiment.traffic_split.items():
+            cumulative += ratio * 100
+            if hash_val < cumulative:
+                return variant
+        return list(experiment.traffic_split.keys())[0]
+```
+
+**2. 评估指标体系：**
+
+```python
+@dataclass
+class RAGMetrics:
+    """RAG 评估指标收集器"""
+
+    def collect_offline_metrics(self, query: str, answer: str,
+                                 contexts: list[str], reference: str) -> dict:
+        """离线评估指标"""
+        return {
+            # 检索质量
+            "context_relevance": self._context_relevance(query, contexts),
+            "context_recall": self._context_recall(contexts, reference),
+            # 生成质量
+            "faithfulness": self._faithfulness(answer, contexts),
+            "answer_relevance": self._answer_relevance(query, answer),
+            "answer_correctness": self._answer_correctness(answer, reference),
+        }
+
+    def collect_online_metrics(self, query: str, answer: str,
+                                user_feedback: dict = None) -> dict:
+        """在线评估指标"""
+        return {
+            # 效率指标
+            "latency_ms": self._measure_latency(),
+            "token_usage": self._count_tokens(answer),
+            "cost_usd": self._estimate_cost(),
+            # 用户行为指标
+            "thumbs_up": user_feedback.get("thumbs_up", None),
+            "thumbs_down": user_feedback.get("thumbs_down", None),
+            "follow_up_query": user_feedback.get("has_follow_up", False),
+            "session_duration": user_feedback.get("session_duration", 0),
+            # 质量代理指标
+            "answer_length": len(answer),
+            "has_citations": "[" in answer and "]" in answer,
+            "hedging_phrases": self._detect_hedging(answer),
+        }
+
+    def _faithfulness(self, answer: str, contexts: list[str]) -> float:
+        """计算忠实度：答案是否基于上下文"""
+        prompt = f"""评估以下回答相对于参考资料的忠实度（0-1分）。
+
+参考资料：{chr(10).join(contexts)}
+回答：{answer}
+
+只返回一个 0-1 之间的数字。"""
+        return float(self.llm.invoke(prompt).content.strip())
+```
+
+**3. 实验结果分析与决策：**
+
+```python
+class ExperimentAnalyzer:
+    """实验结果分析"""
+
+    def analyze(self, experiment_id: str, min_samples: int = 100) -> dict:
+        """分析实验结果"""
+        data = self.metrics_store.query(experiment_id)
+        variants = data.groupby("variant")
+
+        results = {}
+        for variant_name, group in variants:
+            if len(group) < min_samples:
+                continue
+            results[variant_name] = {
+                "sample_size": len(group),
+                "metrics": {
+                    "faithfulness_mean": group["faithfulness"].mean(),
+                    "faithfulness_std": group["faithfulness"].std(),
+                    "latency_p50": group["latency_ms"].quantile(0.5),
+                    "latency_p95": group["latency_ms"].quantile(0.95),
+                    "thumbs_up_rate": group["thumbs_up"].mean(),
+                    "cost_per_query": group["cost_usd"].mean(),
+                }
+            }
+
+        # 统计显著性检验
+        if len(results) == 2:
+            control = variants.get_group("control")
+            treatment = variants.get_group("treatment")
+            from scipy import stats
+            t_stat, p_value = stats.ttest_ind(
+                control["faithfulness"],
+                treatment["faithfulness"]
+            )
+            results["statistical_test"] = {
+                "t_statistic": t_stat,
+                "p_value": p_value,
+                "significant": p_value < 0.05
+            }
+
+        return results
+
+# 示例实验配置
+experiment = RAGExperiment(
+    experiment_id="rag-reranker-v2",
+    name="测试新 Reranker 效果",
+    variants={
+        "control": {
+            "reranker": "bge-reranker-base",
+            "top_k": 5,
+            "prompt_template": "default"
+        },
+        "treatment": {
+            "reranker": "bge-reranker-v2-m3",
+            "top_k": 5,
+            "prompt_template": "default"
+        }
+    },
+    traffic_split={"control": 0.5, "treatment": 0.5},
+    metrics=["faithfulness", "latency_ms", "thumbs_up_rate", "cost_usd"]
+)
+```
+
+**4. 常见的 RAG A/B 测试场景：**
+
+| 实验维度 | 对比内容 | 关键指标 |
+|---------|---------|---------|
+| 检索策略 | 向量检索 vs 混合检索 | Context Relevance, Recall |
+| Reranker | 不同 Reranker 模型 | Faithfulness, Latency |
+| 分块策略 | 512 vs 1024 Chunk Size | Context Relevance, Cost |
+| Prompt 模板 | 不同提示词设计 | Faithfulness, Answer Relevance |
+| 检索数量 | Top-3 vs Top-5 vs Top-10 | Faithfulness, Latency, Cost |
+| 生成模型 | GPT-4o vs Claude vs 开源模型 | Quality, Cost, Latency |
+
+**追问：**
+- RAG A/B 测试需要多少样本量？离线评估用 Golden Dataset（100-500 条）；在线测试通常需要数千次请求才有统计显著性
+- 如何处理用户反馈的稀疏性？可以用 LLM-as-Judge 替代部分人工标注，同时追踪隐式信号（如用户是否重新提问）
+- 多个实验同时进行怎么办？用正交实验设计（Factorial Design），不同维度的实验可以同时进行互不干扰
+
+---
+
 ## 总结：RAG 系统设计 Checklist
 
 ```

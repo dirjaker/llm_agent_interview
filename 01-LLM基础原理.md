@@ -1499,4 +1499,692 @@ DeepSeek-V3       37B params,  14800B tokens, 比例=400.0 ✓ 训练充足
 
 ---
 
+## 27. ⭐⭐⭐ Q: MoE（Mixture of Experts）架构的详细原理？
+
+> **路由机制、Expert网络、负载均衡、DeepSeek-V2/V3的创新、MoE的优缺点、实际应用**
+
+### 答案
+
+MoE 的核心思想是**条件计算**：模型拥有大量参数，但每次前向传播只激活一小部分。这打破了"计算量必须与参数量成正比"的约束。
+
+**1. 路由机制（Router）**
+
+Router 是一个简单的线性层，将每个 token 映射到专家概率分布。关键设计选择：
+
+- **Top-K 选择**：每个 token 选 K 个专家（通常 K=1 或 2）
+- **负载均衡损失**：防止专家坍缩（所有 token 都路由到同一个专家）
+
+**2. 专家网络（Expert）**
+
+每个 Expert 通常是一个标准的 FFN（两层 MLP），与 Transformer 中的 FFN 结构相同。所有 Expert 共享相同的输入维度，但各自独立学习不同的"专长"。
+
+**3. DeepSeek-V2/V3 的关键创新**
+
+- **细粒度专家**：将传统大专家拆成更多小专家（如 256 个），提高路由灵活性
+- **共享专家 + 路由专家**：设置 1-2 个"共享专家"处理所有 token（通用知识），其余为路由专家（领域知识）
+- **无辅助损失负载均衡**：用 bias 项动态调整路由概率，避免辅助损失损害模型质量
+
+**4. 优缺点**
+
+| 优势 | 劣势 |
+|------|------|
+| 参数大但推理便宜（671B 总参，37B 激活） | 显存仍需存放所有专家 |
+| 训练效率高 | 通信开销大（Expert Parallelism） |
+| 可扩展性好 | 负载均衡难调 |
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class MoELayer(nn.Module):
+    def __init__(self, d_model, d_ff, num_experts, top_k=2):
+        super().__init__()
+        self.num_experts = num_experts
+        self.top_k = top_k
+        self.gate = nn.Linear(d_model, num_experts, bias=False)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d_model, d_ff),
+                nn.SiLU(),
+                nn.Linear(d_ff, d_model)
+            ) for _ in range(num_experts)
+        ])
+
+    def forward(self, x):
+        B, S, D = x.shape
+        x_flat = x.reshape(-1, D)
+
+        # Router: 计算每个 token 到各专家的得分
+        logits = self.gate(x_flat)                  # (B*S, E)
+        scores = F.softmax(logits, dim=-1)           # (B*S, E)
+        top_k_scores, top_k_idx = torch.topk(scores, self.top_k, dim=-1)
+        top_k_scores = top_k_scores / top_k_scores.sum(dim=-1, keepdim=True)
+
+        # 加权求和各专家输出
+        output = torch.zeros_like(x_flat)
+        for k in range(self.top_k):
+            idx = top_k_idx[:, k]
+            weight = top_k_scores[:, k]
+            for e in range(self.num_experts):
+                mask = (idx == e)
+                if mask.any():
+                    out = self.experts[e](x_flat[mask])
+                    output[mask] += weight[mask, None] * out
+
+        return output.reshape(B, S, D)
+
+moe = MoELayer(d_model=512, d_ff=2048, num_experts=8, top_k=2)
+x = torch.randn(2, 10, 512)
+print(f"总参数: {sum(p.numel() for p in moe.parameters()):,}")
+print(f"输出: {moe(x).shape}")
+```
+
+### 追问
+
+1. **负载均衡损失怎么设计？**（辅助损失鼓励 token 均匀分配：L_aux = α * Σ(f_i * P_i)，f_i 是实际分配比例，P_i 是平均路由概率）
+2. **MoE 模型如何做分布式部署？**（Expert Parallelism：不同专家放不同 GPU，需要 All-to-All 通信；或 Expert offloading，冷专家放 CPU）
+3. **MoE 和 Dense 模型在相同计算预算下，谁效果更好？**（MoE 通常更好，因为总参数大意味着更大的知识容量，但前提是负载均衡和训练稳定性得到保障）
+
+---
+
+## 28. ⭐⭐⭐ Q: RoPE（Rotary Position Embedding）的数学原理？
+
+> **旋转矩阵、为什么能编码相对位置、与绝对位置编码的对比、长度外推**
+
+### 答案
+
+RoPE（旋转位置编码）由苏剑林于 2021 年提出，是当前主流 LLM（LLaMA、Qwen、DeepSeek 等）的标准位置编码方式。
+
+**1. 核心思想**
+
+RoPE 通过**旋转**来编码位置信息：对于位置 m 上的向量 x，将其分组后对每组二维子空间施加不同频率的旋转。
+
+**数学公式：**
+
+对于 d 维向量 x = [x₀, x₁, ..., x_{d-1}]，将其看作 d/2 个二维子空间：
+
+```
+RoPE(x, m) = [x₀ cos(mθ₀) - x₁ sin(mθ₀),
+              x₀ sin(mθ₀) + x₁ cos(mθ₀),
+              x₂ cos(mθ₁) - x₃ sin(mθ₁),
+              x₂ sin(mθ₁) + x₃ cos(mθ₁), ...]
+
+其中 θ_i = 10000^(-2i/d)
+```
+
+**2. 为什么能编码相对位置**
+
+关键性质：两个位置的 Query 和 Key 的内积**只依赖于相对距离** (m-n)：
+
+```
+⟨RoPE(q, m), RoPE(k, n)⟩ = ⟨R_m q, R_n k⟩ = q^T R_{n-m} k
+```
+
+这是因为旋转矩阵满足 R_m^T R_n = R_{n-m}。这让注意力分数天然编码了**相对位置信息**。
+
+**3. 长度外推**
+
+原始 RoPE 的频率 θ_i = 10000^(-2i/d) 在超出训练长度时效果退化。改进方案：
+
+- **NTK-aware Scaling**：调整 base 频率，使高频分量在外推时保持稳定
+- **YaRN**：对不同频率分量采用不同的缩放策略
+- **Dynamic NTK**：根据实际序列长度动态调整 base
+
+```python
+import torch
+import math
+
+def precompute_rope_freqs(dim, max_len, base=10000.0):
+    """预计算 RoPE 的 cos/sin 缓存"""
+    freqs = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+    t = torch.arange(max_len).float()
+    freqs = torch.outer(t, freqs)  # (max_len, dim//2)
+    return torch.cos(freqs), torch.sin(freqs)
+
+def apply_rope(x, cos, sin):
+    """应用旋转位置编码
+    x: (batch, seq_len, dim)
+    """
+    d = x.shape[-1]
+    x1 = x[..., :d//2]   # 前半
+    x2 = x[..., d//2:]   # 后半
+    # 旋转
+    out1 = x1 * cos - x2 * sin
+    out2 = x1 * sin + x2 * cos
+    return torch.cat([out1, out2], dim=-1)
+
+# 演示：相对位置性质
+cos, sin = precompute_rope_freqs(64, 1024)
+q = torch.randn(1, 1, 64)
+k = torch.randn(1, 1, 64)
+q_rot = apply_rope(q, cos[5:6], sin[5:6])   # 位置 5
+k_rot = apply_rope(k, cos[8:9], sin[8:9])   # 位置 8
+# 注意力分数只依赖相对距离 8-5=3
+print(f"q·k at pos (5,8) = {(q_rot * k_rot).sum():.4f}")
+```
+
+### 追问
+
+1. **RoPE 和绝对位置编码、ALiBi 对比有什么优劣？**（RoPE：相对位置、支持外推、主流选择；ALiBi：无需训练参数、长度外推好但长距离衰减过快；绝对位置编码：无法外推）
+2. **NTK-aware Scaling 的原理是什么？**（将 base 从 10000 增大到 10000*α，相当于压缩高频分量，让模型在更长序列上保持编码区分度）
+3. **RoPE 对 2D 图像数据适用吗？**（需要扩展为 2D RoPE，对行和列分别编码，ViT 和一些多模态模型已采用）
+
+---
+
+## 29. ⭐⭐⭐ Q: FlashAttention 的详细原理？
+
+> **IO-aware算法、tiling策略、HBM vs SRAM、FlashAttention v1/v2/v3演进、与标准Attention的精度对比**
+
+### 答案
+
+FlashAttention 的核心洞察：**标准 Attention 的瓶颈不是计算（FLOPs），而是内存访问（IO）**。
+
+**1. 标准 Attention 的 IO 问题**
+
+```
+标准流程：
+Q,K,V → 计算 S=QK^T (写入HBM) → 读取S → Softmax (写入HBM)
+       → 读取S和V → 计算 O=S·V (写入HBM)
+总共：O(N²) 的 HBM 读写
+```
+
+**2. FlashAttention 的 Tiling 策略**
+
+核心思想：将 Q、K、V 分成小块（block），在 SRAM（片上内存，~20 TB/s）中完成计算，避免将完整的 N×N 注意力矩阵写入 HBM。
+
+```python
+def flash_attention(Q, K, V, block_size=64):
+    """
+    FlashAttention 伪代码（前向）
+    关键：在线 softmax + 分块计算
+    """
+    N, d = Q.shape
+    O = torch.zeros_like(Q)
+    # softmax 的在线统计量
+    m = torch.full((N,), float('-inf'))  # running max
+    l = torch.zeros(N)                   # running sum of exp
+
+    # 外层遍历 K,V 块
+    for j in range(0, N, block_size):
+        Kj = K[j:j+block_size]  # 从 HBM 加载到 SRAM
+        Vj = V[j:j+block_size]
+
+        # 内层遍历 Q 块
+        for i in range(0, N, block_size):
+            Qi = Q[i:i+block_size]
+
+            # 在 SRAM 中计算局部注意力分数
+            Sij = Qi @ Kj.T / (d ** 0.5)
+
+            # 在线 Softmax 更新（FlashAttention 的关键技巧）
+            m_new = torch.max(m[i:i+block_size], Sij.max(dim=-1).values)
+            exp_old = torch.exp(m[i:i+block_size] - m_new)
+            exp_new = torch.exp(Sij - m_new.unsqueeze(-1))
+
+            l_new = exp_old * l[i:i+block_size] + exp_new.sum(dim=-1)
+
+            # 加权求和（在 SRAM 中完成）
+            O[i:i+block_size] = (
+                exp_old.unsqueeze(-1) * l[i:i+block_size].unsqueeze(-1) * O[i:i+block_size]
+                + exp_new @ Vj
+            ) / l_new.unsqueeze(-1)
+
+            m[i:i+block_size] = m_new
+            l[i:i+block_size] = l_new
+
+    return O
+```
+
+**3. 版本演进**
+
+| 版本 | 年份 | 关键改进 |
+|------|------|---------|
+| v1 | 2022 | 分块计算 + 在线 softmax，IO 从 O(N²) 降到 O(N²d²/M) |
+| v2 | 2023 | 优化并行策略（序列维度并行），减少 non-matmul FLOPs，速度再提升 2x |
+| v3 | 2024 | 针对 H100 异步特性优化，利用 TMA 和 WGMMA，FP8 支持 |
+
+**4. 精度对比**
+
+FlashAttention 的数学输出与标准 Attention **完全相同**（up to float rounding）。在线 softmax 算法确保了数值等价，只是计算顺序不同。实际上因为减少了中间存储的精度损失，某些情况下精度甚至略好。
+
+### 追问
+
+1. **FlashAttention 如何处理反向传播？**（需要重新计算注意力矩阵（recomputation），不保存 N×N 的 S 矩阵，用显存换计算）
+2. **FlashAttention 和 PagedAttention（vLLM）的关系？**（FlashAttention 优化单次注意力计算的 IO；PagedAttention 解决 KV Cache 的内存碎片问题，两者互补）
+3. **在实际项目中如何使用 FlashAttention？**（transformers 中设置 `attn_implementation="flash_attention_2"`；或直接用 `flash_attn` 库）
+
+---
+
+## 30. ⭐⭐ Q: 什么是 GQA（Grouped Query Attention）？和 MHA、MQA 的区别？
+
+> **KV head数量、内存节省、为什么Llama2用GQA**
+
+### 答案
+
+GQA 是 Query Head 和 KV Head 之间的一种折中方案，由 Noam Shazeer 在 2019 年提出，LLaMA 2 开始被广泛采用。
+
+**三种注意力变体：**
+
+```
+MHA (Multi-Head Attention):     Q: 32 heads, KV: 32 heads  ← 标准
+MQA (Multi-Query Attention):    Q: 32 heads, KV:  1 head   ← 极端共享
+GQA (Grouped Query Attention):  Q: 32 heads, KV:  8 heads  ← 折中
+
+GQA 中每 4 个 Q head 共享 1 个 KV head（32/8=4）
+```
+
+**核心动机：KV Cache 是推理瓶颈。**
+
+在自回归推理中，每生成一个 token 都需要访问之前所有 token 的 KV Cache。MHA 的 KV Cache 大小为 `2 * n_layers * n_heads * seq_len * d_head`，对长序列来说显存占用巨大。
+
+```python
+import torch
+import torch.nn as nn
+
+class GroupedQueryAttention(nn.Module):
+    def __init__(self, d_model, n_q_heads, n_kv_heads):
+        super().__init__()
+        self.n_q_heads = n_q_heads
+        self.n_kv_heads = n_kv_heads
+        self.d_head = d_model // n_q_heads
+        self.group_size = n_q_heads // n_kv_heads  # 每组 Q 共享 1 个 KV
+
+        self.W_q = nn.Linear(d_model, n_q_heads * self.d_head, bias=False)
+        self.W_k = nn.Linear(d_model, n_kv_heads * self.d_head, bias=False)
+        self.W_v = nn.Linear(d_model, n_kv_heads * self.d_head, bias=False)
+        self.W_o = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, x):
+        B, S, D = x.shape
+        q = self.W_q(x).view(B, S, self.n_q_heads, self.d_head)
+        k = self.W_k(x).view(B, S, self.n_kv_heads, self.d_head)
+        v = self.W_v(x).view(B, S, self.n_kv_heads, self.d_head)
+
+        # 将 KV head 重复以匹配 Q head 数量
+        k = k.repeat_interleave(self.group_size, dim=2)  # 核心！
+        v = v.repeat_interleave(self.group_size, dim=2)
+
+        # 后续计算与标准 MHA 相同
+        q = q.transpose(1, 2)  # (B, H_q, S, d)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        attn = (q @ k.transpose(-2, -1)) / (self.d_head ** 0.5)
+        out = torch.softmax(attn, dim=-1) @ v
+        out = out.transpose(1, 2).reshape(B, S, D)
+        return self.W_o(out)
+
+# KV Cache 大小对比
+d_head, seq_len = 128, 4096
+print(f"MHA  KV Cache (32 heads): {2 * 32 * seq_len * d_head / 1e6:.1f} MB")
+print(f"GQA  KV Cache  (8 heads): {2 *  8 * seq_len * d_head / 1e6:.1f} MB")
+print(f"MQA  KV Cache  (1 head):  {2 *  1 * seq_len * d_head / 1e6:.1f} MB")
+```
+
+**为什么 LLaMA 2 选择 GQA？** LLaMA 2 70B 使用 8 个 KV head（64 个 Q head）。GQA 相比 MHA 减少 75% 的 KV Cache，推理速度提升约 30%，而质量损失几乎可以忽略。MQA 虽然节省更多，但在大模型上质量下降明显。
+
+### 追问
+
+1. **GQA 的 KV Cache 比 MHA 小多少？**（n_kv_heads / n_q_heads 的比例，如 8/64 = 1/8，KV Cache 缩小 8 倍）
+2. **训练好的 MHA 模型能转换成 GQA 吗？**（可以，通过将同组内的 KV head 做平均初始化，然后少量继续训练（uptrain），LLaMA 2 论文验证了这个方法有效）
+3. **GQA 对训练速度有影响吗？**（训练时影响很小，主要收益在推理阶段——KV Cache 减少意味着更大的 batch size 和更长的上下文）
+
+---
+
+## 31. ⭐⭐ Q: 什么是 Sparse Attention？有哪些稀疏注意力模式？
+
+> **局部注意力、全局注意力、Longformer、BigBird**
+
+### 答案
+
+Sparse Attention 的核心思想：**标准 Attention 的 O(N²) 太贵，但不是所有 token 对之间的交互都有必要**。通过只计算部分 token 对的注意力，将复杂度降低到 O(N) 或 O(N√N)。
+
+**1. 主要稀疏模式**
+
+```
+标准 O(N²):     每个 token 关注所有其他 token
+┌──────────┐
+│██████████│  全部计算
+│██████████│
+│██████████│
+└──────────┘
+
+局部注意力:     每个 token 只关注窗口内的邻居（如 w=3）
+┌──────────┐
+│██░░░░░░░░│
+│░██░░░░░░░│  O(N * w)
+│░░██░░░░░░│
+└──────────┘
+
+全局注意力:     特定 token（如 [CLS]）关注所有 token
+┌──────────┐
+│██████████│  [CLS] 看到全部
+│░░░░░░░░░░│  其他 token 只看局部
+│░░░░░░░░░░│
+└──────────┘
+```
+
+**2. Longformer 的模式**
+
+组合三种注意力：
+
+- **滑动窗口**（局部）：每个 token 关注左右各 w/2 个邻居
+- **膨胀滑动窗口**：类似 CNN 的 dilation，跳跃式关注更大的范围
+- **全局注意力**：特定 token（如 [CLS]、问题 token）关注所有位置
+
+**3. BigBird 的模式**
+
+理论证明：随机注意力 + 窗口注意力 + 全局注意力 = 图灵完备。
+
+```python
+import torch
+
+def longformer_attention_mask(seq_len, window_size, global_tokens=1):
+    """生成 Longformer 风格的稀疏注意力掩码"""
+    mask = torch.zeros(seq_len, seq_len, dtype=torch.bool)
+
+    # 1. 全局注意力：前 global_tokens 个 token 关注所有位置
+    mask[:global_tokens, :] = True
+    mask[:, :global_tokens] = True
+
+    # 2. 滑动窗口：每个 token 关注局部窗口
+    for i in range(seq_len):
+        start = max(0, i - window_size // 2)
+        end = min(seq_len, i + window_size // 2 + 1)
+        mask[i, start:end] = True
+
+    return mask
+
+mask = longformer_attention_mask(seq_len=16, window_size=4, global_tokens=2)
+print("Longformer 稀疏注意力掩码 (16 tokens, window=4, global=2):")
+print(mask.int())
+
+# 计算复杂度对比
+N = 4096
+w = 256
+print(f"\n标准 Attention: {N*N:,} 次计算")
+print(f"窗口 Attention: {N*w:,} 次计算 (节省 {100*(1-w/N):.1f}%)")
+```
+
+**局限性：** 现代 LLM（GPT-4、Claude 等）很少使用 Sparse Attention，原因是：
+- FlashAttention 已大幅降低标准 Attention 的实际开销
+- 稀疏注意力的实现复杂，硬件利用率不如稠密矩阵运算
+- 长上下文的需求通过其他方式解决（RoPE 外推、RAG）
+
+### 追问
+
+1. **为什么现代 LLM 不太用 Sparse Attention 了？**（FlashAttention + GQA + 长上下文技术已经足够高效，Sparse Attention 的工程复杂度和硬件利用率不如稠密方案）
+2. **Ring Attention 和 Sparse Attention 有什么关系？**（Ring Attention 通过分块串行计算实现超长上下文，不改变注意力模式，但解决了分布式环境下的显存问题）
+3. **Sparse Attention 对训练和推理的影响分别是什么？**（训练时需要定制 CUDA kernel 实现高效稀疏计算；推理时主要影响 prefill 阶段的计算量，对 autoregressive decoding 影响不大）
+
+---
+
+## 32. ⭐⭐⭐ Q: 什么是 Mixture of Depths？和 MoE 有什么区别？
+
+> **动态计算、早退出、Google的最新研究**
+
+### 答案
+
+Mixture of Depths（MoD）是 Google 在 2024 年提出的动态计算分配方案：**不是所有 token 都需要经过每一层 Transformer**。部分 token 可以"跳过"某些层，直接传递到下一层。
+
+**核心思想：深度维度的稀疏化。**
+
+- **MoE**：在**宽度**上做稀疏——每个 token 只激活部分专家（FFN）
+- **MoD**：在**深度**上做稀疏——每个 token 只经过部分层
+
+```
+标准 Transformer:  所有 token 都经过所有层
+Token A: [Layer1] → [Layer2] → [Layer3] → [Layer4]
+Token B: [Layer1] → [Layer2] → [Layer3] → [Layer4]
+
+Mixture of Depths:  简单 token 跳过部分层
+Token A (复杂):   [Layer1] → [Layer2] → [Layer3] → [Layer4]
+Token B (简单):   [Layer1] → ──skip──→ ──skip──→ [Layer4]
+```
+
+**实现机制：**
+
+每个 Transformer 层包含一个轻量级的 **Router**（基于当前 token 的 hidden state），决定该 token 是否"通过"该层。如果"不通过"，token 的 hidden state 通过残差连接直接传递到下一层。
+
+```python
+import torch
+import torch.nn as nn
+
+class MixtureOfDepthsBlock(nn.Module):
+    """单个 Transformer 层，支持 MoD 的动态跳过"""
+
+    def __init__(self, d_model, d_ff, threshold=0.5):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(d_model, num_heads=8, batch_first=True)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_ff),
+            nn.GELU(),
+            nn.Linear(d_ff, d_model)
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        # Router: 决定 token 是否经过该层
+        self.router = nn.Linear(d_model, 1)
+        self.threshold = threshold
+
+    def forward(self, x):
+        B, S, D = x.shape
+
+        # 1. Router 决策
+        router_logits = self.router(x).squeeze(-1)        # (B, S)
+        router_probs = torch.sigmoid(router_logits)       # (B, S)
+        mask = router_probs > self.threshold               # (B, S) bool
+
+        # 2. 计算注意力和 FFN（只对选中的 token）
+        residual = x
+        x_norm = self.norm1(x)
+        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
+
+        # 只更新被选中的 token
+        x = residual + attn_out * mask.unsqueeze(-1).float()
+
+        residual = x
+        x_norm = self.norm2(x)
+        ffn_out = self.ffn(x_norm)
+        x = residual + ffn_out * mask.unsqueeze(-1).float()
+
+        # 统计跳过比例
+        skip_ratio = 1 - mask.float().mean().item()
+        return x, skip_ratio
+
+# 使用示例
+block = MixtureOfDepthsBlock(d_model=512, d_ff=2048, threshold=0.5)
+x = torch.randn(2, 10, 512)
+out, skip_ratio = block(x)
+print(f"跳过的 token 比例: {skip_ratio:.1%}")
+```
+
+**MoE vs MoD 对比：**
+
+| 维度 | MoE | MoD |
+|------|-----|-----|
+| 稀疏维度 | 宽度（专家） | 深度（层） |
+| 共同点 | 都用 Router，都有负载均衡问题 |
+| 计算节省 | 每层 FFN 只激活 Top-K 专家 | 简单 token 跳过整个层 |
+| 可组合 | ✅ MoE + MoD 可以同时使用 |
+
+### 追问
+
+1. **MoD 的 Router 怎么训练？**（用 straight-through estimator：前向用离散的 0/1 决策，反向时梯度通过 sigmoid 传递）
+2. **MoD 中哪些 token 会被跳过？**（实验发现：简单的功能词（"the"、"is"）和已经充分编码的 token 更容易被跳过，而内容关键词和位置关键 token 更多被保留）
+3. **MoD 在实际模型中的加速效果如何？**（Google 论文报告可节省约 30-50% 的 FLOPs，同时质量损失极小；但实际延迟取决于硬件利用率）
+
+---
+
+## 33. ⭐⭐ Q: 什么是 Multi-token Prediction？为什么多token预测能提升性能？
+
+> **Meta的Multi-token Prediction论文**
+
+### 答案
+
+传统的自回归语言模型在每个位置只预测下一个 token（Next-Token Prediction, NTP）。Multi-token Prediction（MTP）让模型在每个位置**同时预测未来 K 个 token**。
+
+**1. 动机**
+
+NTP 只看"下一步"，模型很难学会需要长期规划的能力（如写代码、写文章的结构）。MTP 通过让模型预测更远的未来，迫使其学到更好的内部表示。
+
+**2. 架构设计**
+
+Meta 2024 年的论文使用**共享主干 + 独立预测头**：
+
+```
+输入: t₁, t₂, t₃, t₄
+      ↓
+[共享 Transformer 主干]  →  hidden states h₁, h₂, h₃, h₄
+      ↓
+Head1(h₁) → 预测 t₂    (下一个 token，标准 NTP)
+Head2(h₁) → 预测 t₃    (下下个 token)
+Head3(h₁) → 预测 t₄    (再下个 token)
+Head4(h₁) → 预测 t₅    (更远的 token)
+
+训练时：总损失 = L_NTP + α * (L_2TP + L_3TP + L_4TP)
+推理时：只用 Head1 做标准自回归；或用 Head1-4 做并行猜测+验证
+```
+
+**3. 为什么能提升性能？**
+
+- **更好的内部表示**：预测多个未来 token 迫使 hidden state 编码更多语义信息
+- **隐式规划**：模型必须"提前规划"才能同时预测多个 token
+- **训练信号更丰富**：每个位置提供 K 个梯度信号而非 1 个
+- **推理加速**：可以用多个 Head 做 speculative decoding（投机解码），一次验证多个候选
+
+```python
+import torch
+import torch.nn as nn
+
+class MultiTokenPrediction(nn.Module):
+    def __init__(self, d_model, vocab_size, num_future_tokens=4):
+        super().__init__()
+        self.num_future = num_future_tokens
+        # 共享 Transformer 主干（示意）
+        self.backbone = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model, nhead=8, batch_first=True),
+            num_layers=6
+        )
+        # 每个未来位置一个独立的预测头
+        self.heads = nn.ModuleList([
+            nn.Linear(d_model, vocab_size) for _ in range(num_future_tokens)
+        ])
+
+    def forward(self, input_ids, embed_fn):
+        x = embed_fn(input_ids)          # (B, S, D)
+        h = self.backbone(x)             # (B, S, D)
+
+        # 每个 head 预测不同距离的未来 token
+        all_logits = []
+        for k, head in enumerate(self.heads):
+            logits_k = head(h)            # (B, S, V)
+            all_logits_k = logits_k[:, :-(k+1), :]  # 对齐：移除尾部
+            all_logits.append(all_logits_k)
+
+        return all_logits  # list of (B, S-k-1, V)
+
+# 训练时所有 head 的损失都参与反向传播
+# 推理时可以只用 head[0]，或用所有 head 做 speculative decoding
+model = MultiTokenPrediction(d_model=512, vocab_size=32000, num_future_tokens=4)
+print(f"预测头数量: {model.num_future}")
+```
+
+### 追问
+
+1. **Multi-token Prediction 和 Speculative Decoding 有什么关系？**（MTP 的多个 Head 天然支持投机解码：Head1 生成主候选，Head2-4 生成验证候选，一次前向验证多个 token）
+2. **训练时多个 Head 的损失权重怎么设置？**（通常远距离 Head 的权重递减；如 Head1 权重 1.0，Head2 权重 0.5，Head3 权重 0.25）
+3. **DeepSeek-V3 如何使用 MTP？**（DeepSeek-V3 将 MTP 作为辅助训练目标，推理时可以选择性地使用 MTP Head 进行投机解码，显著提升推理吞吐）
+
+---
+
+## 34. ⭐⭐ Q: 什么是 RLHF 的详细流程？
+
+> **奖励模型训练、PPO算法、KL散度约束、RLHF的局限性**
+
+### 答案
+
+RLHF（Reinforcement Learning from Human Feedback）是让 LLM 对齐人类偏好的关键训练范式，由 InstructGPT（2022）系统化。
+
+**完整流程：**
+
+```
+阶段1: SFT (Supervised Fine-Tuning)
+   高质量指令数据 → 有监督训练 → SFT 模型
+
+阶段2: Reward Model (RM) 训练
+   SFT 模型生成多个回答 → 人类排序偏好 → 训练奖励模型
+
+阶段3: PPO 强化学习
+   SFT 模型 + RM → PPO 算法优化 → RLHF 模型
+```
+
+**1. 奖励模型训练**
+
+对同一个 prompt，SFT 模型生成多个回答，人类标注者进行排序。使用 Bradley-Terry 模型训练 RM：
+
+```python
+import torch
+import torch.nn as nn
+
+class RewardModel(nn.Module):
+    """奖励模型：输入一个回答，输出标量奖励分数"""
+    def __init__(self, base_model, d_model):
+        super().__init__()
+        self.backbone = base_model  # 通常是 SFT 模型
+        self.reward_head = nn.Linear(d_model, 1)
+
+    def forward(self, input_ids):
+        h = self.backbone(input_ids)
+        reward = self.reward_head(h[:, -1, :])  # 用最后一个 token 的 hidden state
+        return reward.squeeze(-1)
+
+def reward_loss(rm, chosen_ids, rejected_ids):
+    """Bradley-Terry 偏好损失：chosen 的奖励应该高于 rejected"""
+    r_chosen = rm(chosen_ids)
+    r_rejected = rm(rejected_ids)
+    # -log σ(r_chosen - r_rejected)
+    loss = -torch.log(torch.sigmoid(r_chosen - r_rejected)).mean()
+    return loss
+```
+
+**2. PPO 强化学习优化**
+
+PPO（Proximal Policy Optimization）的核心更新：
+
+```
+目标: max E[R(x, y)] - β * KL(π_θ || π_ref)
+
+其中:
+- R(x, y): 奖励模型对回答 y 的评分
+- π_θ: 当前策略模型（正在优化的 LLM）
+- π_ref: 参考模型（SFT 模型，冻结不动）
+- β: KL 惩罚系数，防止偏离 SFT 模型太远
+
+PPO clip 目标:
+L = min(r(θ) * A, clip(r(θ), 1-ε, 1+ε) * A)
+其中 r(θ) = π_θ(a|s) / π_old(a|s)，A 为优势函数
+```
+
+**3. KL 散度约束的作用**
+
+防止"奖励黑客"（reward hacking）：模型可能找到获得高奖励但质量很差的回答模式（如重复输出"非常感谢！"）。KL 惩罚确保模型不会偏离 SFT 模型太远。
+
+**4. RLHF 的局限性**
+
+- **奖励模型不完美**：RM 只是人类偏好的近似，优化 RM 可能导致"过度优化"
+- **人类标注成本高**：需要大量高质量的偏好标注
+- **训练不稳定**：PPO 对超参数敏感，奖励信号稀疏
+- **模式坍缩**：模型可能学会"安全但无聊"的回答模式
+
+因此出现了 DPO（Direct Preference Optimization）——直接用偏好数据优化策略，绕过 RM 训练和 PPO，更简单稳定。
+
+### 追问
+
+1. **DPO 相比 RLHF 的核心优势是什么？**（不需要训练 RM，不需要 PPO 的复杂实现，直接用偏好数据的 closed-form 解优化策略，训练更稳定）
+2. **RLHF 中的 KL 系数 β 如何调整？**（β 太大：模型几乎不变（退化为 SFT）；β 太小：奖励黑客；通常从 0.1 开始调，或用自适应 KL 控制器）
+3. **RLHF 和 RLAIF（AI 反馈）有什么区别？**（RLAIF 用另一个 LLM 代替人类做偏好标注，大幅降低成本；Constitutional AI 是 RLAIF 的一种，Claude 使用了这种方法）
+
+---
+
 > 📝 最后更新：2025 年 6 月 | 作者：LLM 面试题库项目
