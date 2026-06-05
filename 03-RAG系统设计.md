@@ -2919,3 +2919,440 @@ experiment = RAGExperiment(
 ---
 
 > 📌 **面试提示：** RAG 系统设计题的关键不是背概念，而是展示**你实际踩过什么坑、怎么解决的**。建议准备 2-3 个真实的优化案例，用数据说话（比如"优化后检索命中率从 72% 提升到 91%"）。
+
+---
+
+## 十二、Agentic RAG
+
+### Q: 什么是 Agentic RAG？和传统 RAG 有什么区别？
+
+**答**：
+
+Agentic RAG 是将 **Agent 的自主决策能力** 引入 RAG 系统的架构，让 LLM 不再被动接受检索结果，而是主动决定「要不要检索」「怎么检索」「检索多少」。
+
+**传统 RAG（被动）**：
+```
+用户问题 → 固定检索 Top-K → 拼接上下文 → 生成回答
+
+问题：
+1. 每次都检索，即使问题不需要（"你好"也检索）
+2. 固定 Top-K，无法动态调整
+3. 检索失败不会重试或换策略
+4. 无法跨文档推理
+```
+
+**Agentic RAG（主动）**：
+```
+用户问题 → Agent 判断：
+├── 需要检索吗？ → 否 → 直接回答（通用知识）
+├── 检索什么？   → 生成精确查询
+├── 检索多少？   → 动态调整 Top-K
+├── 结果够用吗？ → 不够 → 换查询策略重试
+├── 需要多跳吗？ → 是 → 基于第一次结果发起第二次检索
+└── 信息矛盾吗？ → 是 → 交叉验证
+```
+
+**核心差异**：
+
+| 维度 | 传统 RAG | Agentic RAG |
+|------|----------|-------------|
+| 检索决策 | 每次都检索 | LLM 决定是否检索 |
+| 查询生成 | 直接用用户问题 | LLM 生成优化查询 |
+| 检索策略 | 固定 Top-K | 动态调整，支持多跳 |
+| 结果处理 | 直接拼接 | 评估、过滤、重排序 |
+| 失败处理 | 跳过 | 重试、换策略、降级 |
+| 迭代 | 单次 | 多轮迭代直到满意 |
+
+---
+
+### Q: 如何实现一个 Agentic RAG 系统？
+
+**答**：
+
+```python
+from typing import Literal
+from dataclasses import dataclass
+
+@dataclass
+class RetrievalResult:
+    documents: list[dict]
+    query: str
+    strategy: str
+    score: float  # 结果质量评分
+
+class AgenticRAG:
+    """Agentic RAG 系统"""
+
+    def __init__(self, llm, retriever, max_iterations=3):
+        self.llm = llm
+        self.retriever = retriever
+        self.max_iterations = max_iterations
+
+    async def answer(self, question: str) -> str:
+        """Agentic RAG 主循环"""
+
+        # Step 1: 判断是否需要检索
+        need_retrieval = await self._should_retrieve(question)
+        if not need_retrieval:
+            return await self.llm.generate(question)
+
+        # Step 2: 生成初始检索查询
+        queries = await self._generate_queries(question)
+
+        # Step 3: 迭代检索循环
+        all_results = []
+        for iteration in range(self.max_iterations):
+            # 执行检索
+            results = await self._multi_strategy_retrieve(queries)
+            all_results.extend(results)
+
+            # 评估结果质量
+            quality = await self._evaluate_results(question, all_results)
+
+            if quality["sufficient"]:
+                # 结果足够，生成回答
+                break
+            elif quality["need_refine"]:
+                # 需要更精确的查询
+                queries = await self._refine_queries(question, all_results, quality)
+            elif quality["need_broaden"]:
+                # 需要更广泛的检索
+                queries = await self._broaden_queries(question, all_results)
+            else:
+                # 无法改善，使用当前结果
+                break
+
+        # Step 4: 生成最终回答
+        return await self._generate_answer(question, all_results)
+
+    async def _should_retrieve(self, question: str) -> bool:
+        """判断是否需要检索"""
+        prompt = f"""判断以下问题是否需要从知识库检索信息才能准确回答。
+
+问题: {question}
+
+回答 "yes" 或 "no"。
+- 需要检索: 涉及具体事实、数据、文档内容、专业知识
+- 不需要检索: 通用问候、数学计算、代码生成、创意写作"""
+
+        result = await self.llm.generate(prompt)
+        return "yes" in result.lower()
+
+    async def _generate_queries(self, question: str) -> list[str]:
+        """生成多个检索查询"""
+        prompt = f"""为以下问题生成 2-3 个不同的检索查询，以提高召回率。
+
+原始问题: {question
+
+输出 JSON 数组: ["query1", "query2", "query3"]"""
+
+        result = await self.llm.generate(prompt)
+        return json.loads(result)
+
+    async def _multi_strategy_retrieve(self, queries: list[str]) -> list:
+        """多策略检索"""
+        all_results = []
+
+        for query in queries:
+            # 策略 1: 向量检索（语义相似）
+            vector_results = await self.retriever.vector_search(query, top_k=5)
+            all_results.extend(vector_results)
+
+            # 策略 2: 关键词检索（精确匹配）
+            keyword_results = await self.retriever.keyword_search(query, top_k=3)
+            all_results.extend(keyword_results)
+
+        # 去重
+        return self._deduplicate(all_results)
+
+    async def _evaluate_results(self, question: str, results: list) -> dict:
+        """评估检索结果质量"""
+        context = "\n---\n".join([r["content"][:500] for r in results[:10]])
+
+        prompt = f"""评估以下检索结果是否足以回答问题。
+
+问题: {question
+
+检索结果:
+{context}
+
+评估维度:
+1. 相关性: 结果与问题的相关程度
+2. 充分性: 是否包含足够信息回答问题
+3. 一致性: 结果之间是否矛盾
+
+输出 JSON:
+{{"sufficient": true/false, "need_refine": true/false, "need_broaden": true/false, "reason": "..."}}"""
+
+        result = await self.llm.generate(prompt)
+        return json.loads(result)
+
+    async def _refine_queries(self, question: str, results: list, quality: dict) -> list[str]:
+        """优化检索查询"""
+        prompt = f"""基于之前的检索结果，生成更精确的查询。
+
+原始问题: {question
+之前的查询结果摘要: {quality.get('reason', '')}
+缺失信息: {quality.get('missing', '')}
+
+请生成 2 个更精确的查询。"""
+
+        result = await self.llm.generate(prompt)
+        return json.loads(result)
+
+    async def _generate_answer(self, question: str, results: list) -> str:
+        """生成最终回答"""
+        context = "\n\n".join([
+            f"[来源: {r.get('source', '未知')}]\n{r['content']}"
+            for r in results[:8]
+        ])
+
+        prompt = f"""基于以下检索结果回答问题。如果结果中没有足够信息，请明确说明。
+
+检索结果:
+{context}
+
+问题: {question
+
+要求:
+1. 直接回答问题
+2. 引用来源
+3. 如果信息不足，说明需要什么额外信息"""
+
+        return await self.llm.generate(prompt)
+```
+
+---
+
+### Q: Agentic RAG 的多跳检索（Multi-hop RAG）如何实现？
+
+**答**：
+
+多跳检索是指需要**多次检索、逐步推理**才能回答的复杂问题。
+
+```
+问题: "张三负责的项目的数据库用的什么版本？"
+
+第 1 跳: 检索 "张三 负责 项目" → 找到 "张三负责电商系统项目"
+第 2 跳: 检索 "电商系统 技术栈 数据库" → 找到 "使用 PostgreSQL 14"
+答案: PostgreSQL 14
+```
+
+```python
+class MultiHopRAG:
+    """多跳检索 RAG"""
+
+    async def multi_hop_answer(self, question: str, max_hops: int = 3) -> str:
+        """多跳推理"""
+        context_so_far = []
+        current_question = question
+
+        for hop in range(max_hops):
+            # 检索当前子问题
+            results = await self.retriever.search(current_question, top_k=5)
+            context_so_far.extend(results)
+
+            # 判断是否已经可以回答
+            can_answer = await self._check_sufficient(question, context_so_far)
+
+            if can_answer["sufficient"]:
+                return await self._generate_answer(question, context_so_far)
+
+            # 生成下一个子问题（关键！）
+            current_question = await self._generate_next_hop(
+                original_question=question,
+                context_so_far=context_so_far,
+                hop_number=hop + 1
+            )
+
+            if not current_question:
+                break
+
+        # 使用所有收集到的上下文生成回答
+        return await self._generate_answer(question, context_so_far)
+
+    async def _generate_next_hop(self, original_question, context_so_far, hop_number):
+        """基于已有信息生成下一个检索问题"""
+        context_summary = "\n".join([c["content"][:200] for c in context_so_far[-5:]])
+
+        prompt = f"""你正在回答一个多跳问题。已收集到以下信息：
+
+原始问题: {original_question}
+已收集信息:
+{context_summary}
+
+为了回答原始问题，还需要知道什么？
+生成下一个检索问题（第 {hop_number + 1} 跳）。
+
+如果已有信息足够回答，输出 "SUFFICIENT"。
+如果无法继续推理，输出 "IMPOSSIBLE"。"""
+
+        result = await self.llm.generate(prompt)
+
+        if "SUFFICIENT" in result:
+            return None
+        if "IMPOSSIBLE" in result:
+            return None
+
+        return result
+```
+
+---
+
+### Q: Agentic RAG 的 Self-RAG 模式是什么？
+
+**答**：
+
+Self-RAG 是一种让模型**自我反思和评估**的 RAG 模式，模型在生成过程中主动决定何时检索、如何使用检索结果。
+
+**核心思想**：用特殊的「反思 token」控制 RAG 行为
+
+```
+反思 token 类型：
+├── [Retrieve]  → 是否需要检索
+├── [IsRel]     → 检索结果是否相关
+├── [IsSup]     → 回答是否有检索结果支持
+├── [IsUse]     → 回答是否有用
+```
+
+**实现**：
+```python
+class SelfRAG:
+    """Self-RAG 实现"""
+
+    async def generate_with_reflection(self, question: str) -> str:
+        """带自我反思的生成"""
+        segments = []
+        retrieved_docs = []
+
+        for step in range(self.max_steps):
+            # 1. 决定是否需要检索
+            should_retrieve = await self._decide_retrieve(question, segments)
+
+            if should_retrieve:
+                # 2. 检索
+                docs = await self.retriever.search(question, top_k=3)
+                retrieved_docs.extend(docs)
+
+                # 3. 评估相关性
+                relevant_docs = await self._filter_relevant(question, docs)
+
+                # 4. 生成带检索结果的片段
+                segment = await self._generate_segment(
+                    question, segments, relevant_docs
+                )
+
+                # 5. 评估支持度
+                is_supported = await self._check_support(segment, relevant_docs)
+
+                if not is_supported:
+                    # 不支持，重新生成
+                    segment = await self._generate_segment(
+                        question, segments, relevant_docs,
+                        instruction="请确保回答有文档支持"
+                    )
+            else:
+                # 不需要检索，直接生成
+                segment = await self._generate_segment(question, segments, [])
+
+            segments.append(segment)
+
+            # 6. 检查是否完成
+            if await self._is_complete(question, segments):
+                break
+
+        return "".join(segments)
+
+    async def _decide_retrieve(self, question: str, segments: list) -> bool:
+        """决定是否需要检索"""
+        context = "".join(segments[-3:]) if segments else ""
+
+        prompt = f"""基于当前上下文，判断是否需要检索外部信息。
+
+问题: {question}
+当前生成: {context}
+
+如果需要检索输出 [Yes]，否则输出 [No]。"""
+
+        result = await self.llm.generate(prompt)
+        return "[Yes]" in result
+```
+
+**Self-RAG vs 传统 RAG**：
+
+| 维度 | 传统 RAG | Self-RAG |
+|------|----------|----------|
+| 检索时机 | 总是检索 | 动态决定 |
+| 结果过滤 | 无 | 按相关性过滤 |
+| 支持度检查 | 无 | 检查回答是否有文档支持 |
+| 质量 | 受检索质量影响大 | 自我纠错，更稳健 |
+
+---
+
+### Q: Agentic RAG 在生产中有哪些挑战？
+
+**答**：
+
+**挑战 1: 延迟控制**
+```
+传统 RAG: 1 次检索 + 1 次生成 = ~2s
+Agentic RAG: 判断 + 检索 + 评估 + 可能重试 = ~5-15s
+
+用户感知延迟可能增加 3-7 倍！
+```
+
+**解决**：
+- 并行检索（多查询同时执行）
+- 缓存常见问题的检索策略
+- 设置最大迭代次数
+- 流式输出让用户看到进度
+
+**挑战 2: 成本控制**
+```
+每次迭代都要调用 LLM：
+- 判断是否检索: ~100 token
+- 生成查询: ~200 token
+- 评估结果: ~500 token
+- 生成回答: ~1000 token
+
+3 次迭代 = ~5000 token（vs 传统 RAG 的 ~1500 token）
+成本增加 3 倍！
+```
+
+**解决**：
+- 用小模型做判断和评估（gpt-4o-mini）
+- 用大模型只做最终生成
+- 缓存中间结果
+
+**挑战 3: 死循环风险**
+```
+Agent 可能陷入：
+"结果不够好 → 换查询 → 还是不够好 → 再换 → ..."
+
+需要：
+- 最大迭代次数限制
+- 结果质量阈值（达到 80% 就够了）
+- 进度检测（连续两次结果相似就停止）
+```
+
+**挑战 4: 可观测性**
+```python
+# 需要记录完整的决策链路
+trace = {
+    "question": question,
+    "decisions": [
+        {"step": 1, "action": "should_retrieve", "result": True},
+        {"step": 2, "action": "generate_queries", "queries": [...]},
+        {"step": 3, "action": "retrieve", "results_count": 8},
+        {"step": 4, "action": "evaluate", "sufficient": False},
+        {"step": 5, "action": "refine_queries", "queries": [...]},
+        {"step": 6, "action": "retrieve", "results_count": 5},
+        {"step": 7, "action": "evaluate", "sufficient": True},
+        {"step": 8, "action": "generate_answer"},
+    ],
+    "total_llm_calls": 5,
+    "total_tokens": 3200,
+    "latency": 8.5
+}
+```
+
