@@ -4,11 +4,11 @@
 
 ### 面试题与实战难题全集
 
-**21 个专题 · 380+ 道面试题 · 41,000+ 行详解**
+**22 个专题 · 390+ 道面试题 · 44,000+ 行详解**
 
-[![Topics](https://img.shields.io/badge/专题-21-blue?style=flat-square)]()
-[![Questions](https://img.shields.io/badge/题目-380+-green?style=flat-square)]()
-[![Lines](https://img.shields.io/badge/代码量-41K+-orange?style=flat-square)]()
+[![Topics](https://img.shields.io/badge/专题-22-blue?style=flat-square)]()
+[![Questions](https://img.shields.io/badge/题目-390+-green?style=flat-square)]()
+[![Lines](https://img.shields.io/badge/代码量-44K+-orange?style=flat-square)]()
 [![Updated](https://img.shields.io/badge/更新-2025.06-red?style=flat-square)]()
 
 *面向大模型应用工程师 / Agent 开发工程师的系统化面试准备*
@@ -61,6 +61,7 @@
 | 16-安全与防护 | 提示注入、输出过滤、PII 脱敏、合规审计 | 15+ | ⭐⭐⭐ |
 | 17-CICD与MLOps | GitHub Actions、Prompt 测试、模型评估流水线 | 10+ | ⭐⭐ |
 | 18-生产环境实战 | 监控、成本优化、延迟、调试、可观测性 | 20+ | ⭐⭐⭐ |
+| 22-第三方API调用与集成 | 超时重试、熔断降级、限流、密钥安全、流式、多模型Fallback | 10+ | ⭐⭐⭐ |
 
 ### ⚫ Phase 6 · 面试冲刺
 
@@ -129,10 +130,10 @@
 
 | 指标 | 数值 |
 |------|:----:|
-| 专题数量 | 21 个 |
-| 题目总数 | 380+ 道 |
-| 代码行数 | 41,000+ 行 |
-| 项目大小 | 2.8 MB |
+| 专题数量 | 22 个 |
+| 题目总数 | 390+ 道 |
+| 代码行数 | 44,000+ 行 |
+| 项目大小 | 3.1 MB |
 | 最后更新 | 2025 年 6 月 |
 
 ---
