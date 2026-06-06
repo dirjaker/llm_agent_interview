@@ -680,4 +680,632 @@ print(result)
 | 协作模式 | 顺序/并行/层级 | 任意图 |
 | 易用性 | 高（声明式） | 中（需理解图） |
 | 灵活性 | 中 | 高 |
-| 适用场景 | 多角色协作 | 复杂工作流 |
+|| 适用场景 | 多角色协作 | 复杂工作流 |
+
+---
+
+## LangGraph 状态图深入
+
+### StateGraph vs MessageGraph
+
+```python
+from langgraph.graph import StateGraph, MessageGraph, END
+from langchain_core.messages import HumanMessage, AIMessage
+
+# ========== MessageGraph（旧版，仅消息列表） ==========
+# 状态 = List[BaseMessage]，节点接收消息列表，返回新消息
+msg_graph = MessageGraph()
+
+def echo(state):
+    return AIMessage(content=f"你说了: {state[-1].content}")
+
+msg_graph.add_node("echo", echo)
+msg_graph.set_entry_point("echo")
+msg_graph.add_edge("echo", END)
+
+app = msg_graph.compile()
+result = app.invoke([HumanMessage(content="你好")])
+# result = [HumanMessage(...), AIMessage("你说了: 你好")]
+
+# ========== StateGraph（推荐，自定义状态） ==========
+from typing import TypedDict, Annotated
+import operator
+
+class MyState(TypedDict):
+    messages: Annotated[list, operator.add]  # 消息自动累加
+    step_count: int
+    metadata: dict
+
+graph = StateGraph(MyState)
+
+def process(state: MyState):
+    return {
+        "messages": [AIMessage(content="处理完毕")],
+        "step_count": state["step_count"] + 1
+    }
+
+graph.add_node("process", process)
+graph.set_entry_point("process")
+graph.add_edge("process", END)
+
+app = graph.compile()
+result = app.invoke({
+    "messages": [HumanMessage(content="你好")],
+    "step_count": 0,
+    "metadata": {}
+})
+```
+
+**区别总结**：
+| 特性 | MessageGraph | StateGraph |
+|------|-------------|------------|
+| 状态类型 | `List[BaseMessage]` | 自定义 TypedDict |
+| 状态合并 | 追加消息 | 自定义 Reducer |
+| 灵活性 | 低 | 高 |
+| 推荐程度 | 已过时 | **推荐** |
+
+---
+
+### 条件分支 (conditional_edges)
+
+```python
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Literal
+
+class RouterState(TypedDict):
+    input: str
+    category: str
+    result: str
+
+# 分类节点：决定路由
+def classify(state: RouterState) -> RouterState:
+    category = llm.invoke(f"将以下内容分类为 [技术/商务/其他]: {state['input']}")
+    return {"category": category.content.strip()}
+
+# 不同处理节点
+def handle_tech(state: RouterState) -> RouterState:
+    return {"result": f"[技术处理] {state['input']}"}
+
+def handle_business(state: RouterState) -> RouterState:
+    return {"result": f"[商务处理] {state['input']}"}
+
+def handle_general(state: RouterState) -> RouterState:
+    return {"result": f"[通用处理] {state['input']}"}
+
+# 路由函数：返回目标节点名
+def route_by_category(state: RouterState) -> Literal["tech", "business", "general"]:
+    mapping = {"技术": "tech", "商务": "business"}
+    return mapping.get(state["category"], "general")
+
+# 构建图
+graph = StateGraph(RouterState)
+graph.add_node("classify", classify)
+graph.add_node("tech", handle_tech)
+graph.add_node("business", handle_business)
+graph.add_node("general", handle_general)
+
+graph.set_entry_point("classify")
+
+# 条件边：根据路由函数的结果选择下一个节点
+graph.add_conditional_edges(
+    "classify",               # 源节点
+    route_by_category,        # 路由函数
+    {
+        "tech": "tech",       # 返回值 -> 目标节点
+        "business": "business",
+        "general": "general"
+    }
+)
+
+graph.add_edge("tech", END)
+graph.add_edge("business", END)
+graph.add_edge("general", END)
+
+app = graph.compile()
+result = app.invoke({"input": "如何部署 Kubernetes？", "category": "", "result": ""})
+```
+
+---
+
+### 人工审批 (interrupt_before / interrupt_after)
+
+```python
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from typing import TypedDict, Annotated
+import operator
+
+class ApprovalState(TypedDict):
+    messages: Annotated[list, operator.add]
+    action: str
+    approved: bool
+
+def plan_action(state: ApprovalState):
+    return {
+        "messages": [AIMessage(content="计划: 删除过期数据")],
+        "action": "delete_expired_data"
+    }
+
+def execute_action(state: ApprovalState):
+    # 实际执行操作
+    return {"messages": [AIMessage(content=f"已执行: {state['action']}")]}
+
+def needs_approval(state: ApprovalState) -> str:
+    if state.get("approved", False):
+        return "approved"
+    return "needs_review"
+
+# 带人工审批的图
+checkpointer = MemorySaver()
+graph = StateGraph(ApprovalState)
+graph.add_node("plan", plan_action)
+graph.add_node("execute", execute_action)
+graph.set_entry_point("plan")
+graph.add_edge("plan", "execute")
+graph.add_edge("execute", END)
+
+app = graph.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["execute"],  # 执行前暂停，等待人工确认
+    # interrupt_after=["plan"],     # 也可在某节点执行后暂停
+)
+
+# 第一次运行：在 execute 前暂停
+config = {"configurable": {"thread_id": "approval-1"}}
+state = app.invoke(
+    {"messages": [HumanMessage(content="清理过期数据")], "action": "", "approved": False},
+    config=config
+)
+
+# 查看暂停状态
+snapshot = app.get_state(config)
+print("暂停在:", snapshot.next)        # ('execute',)
+print("当前状态:", snapshot.values)
+
+# 人工审批后继续
+app.update_state(config, {"approved": True})
+result = app.invoke(None, config=config)  # None 表示继续执行
+print(result)
+```
+
+---
+
+### 子图 (Subgraph)
+
+```python
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated
+import operator
+
+# ---- 子图：搜索流程 ----
+class SearchState(TypedDict):
+    query: str
+    results: list
+    messages: Annotated[list, operator.add]
+
+def web_search_node(state: SearchState):
+    results = ["搜索结果1", "搜索结果2"]
+    return {"results": results, "messages": [AIMessage(content="搜索完成")]}
+
+def filter_results(state: SearchState):
+    filtered = state["results"][:1]  # 取第一条
+    return {"results": filtered}
+
+search_subgraph = StateGraph(SearchState)
+search_subgraph.add_node("search", web_search_node)
+search_subgraph.add_node("filter", filter_results)
+search_subgraph.set_entry_point("search")
+search_subgraph.add_edge("search", "filter")
+search_subgraph.add_edge("filter", END)
+search_app = search_subgraph.compile()
+
+# ---- 主图：将子图作为一个节点 ----
+class MainState(TypedDict):
+    query: str
+    results: list
+    answer: str
+    messages: Annotated[list, operator.add]
+
+def research_node(state: MainState):
+    # 调用子图
+    sub_result = search_app.invoke({"query": state["query"], "results": [], "messages": []})
+    return {
+        "results": sub_result["results"],
+        "messages": sub_result["messages"]
+    }
+
+def answer_node(state: MainState):
+    answer = f"基于 {state['results']} 的回答"
+    return {"answer": answer, "messages": [AIMessage(content=answer)]}
+
+main_graph = StateGraph(MainState)
+main_graph.add_node("research", research_node)    # 节点内部调用子图
+main_graph.add_node("answer", answer_node)
+main_graph.set_entry_point("research")
+main_graph.add_edge("research", "answer")
+main_graph.add_edge("answer", END)
+
+# 也可以直接将子图作为节点添加
+# main_graph.add_node("research", search_app)  # 直接传入编译后的子图
+
+app = main_graph.compile()
+result = app.invoke({"query": "AI Agent", "results": [], "answer": "", "messages": []})
+print(result["answer"])
+```
+
+---
+
+### 持久化 (Checkpointing)
+
+```python
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+# ---- 内存检查点（开发/测试） ----
+memory_checkpointer = MemorySaver()
+
+# ---- SQLite 持久化（单机） ----
+import aiosqlite
+async def get_sqlite_checkpointer():
+    conn = aiosqlite.connect("checkpoints.db")
+    return AsyncSqliteSaver(conn)
+
+# ---- PostgreSQL 持久化（生产） ----
+async def get_pg_checkpointer():
+    return AsyncPostgresSaver.from_conn_string(
+        "postgresql://user:pass@localhost:5432/langgraph"
+    )
+
+# ---- 使用检查点 ----
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated
+
+class ChatState(TypedDict):
+    messages: Annotated[list, operator.add]
+
+def chatbot(state: ChatState):
+    return {"messages": [AIMessage(content="你好！")]}
+
+graph = StateGraph(ChatState)
+graph.add_node("chat", chatbot)
+graph.set_entry_point("chat")
+graph.add_edge("chat", END)
+
+app = graph.compile(checkpointer=memory_checkpointer)
+
+# 线程隔离：不同 thread_id 互不干扰
+config_1 = {"configurable": {"thread_id": "user-alice"}}
+config_2 = {"configurable": {"thread_id": "user-bob"}}
+
+app.invoke({"messages": [HumanMessage(content="我叫Alice")]}, config=config_1)
+app.invoke({"messages": [HumanMessage(content="我叫Bob")]}, config=config_2)
+
+# 查看历史状态
+for snapshot in app.get_state_history(config_1):
+    print(f"Step {snapshot.metadata.get('step', '?')}: {snapshot.values['messages'][-1].content}")
+
+# 从某个 checkpoint 分支（fork）
+# 获取第2步的状态
+history = list(app.get_state_history(config_1))
+fork_point = history[2]  # 第3个状态点
+fork_config = {"configurable": {"thread_id": "alice-fork", **fork_point.config["configurable"]}}
+app.invoke({"messages": [HumanMessage(content="换个思路")]}, config=fork_config)
+```
+
+---
+
+## LCEL 自定义组件
+
+### RunnablePassthrough 与 RunnableLambda
+
+```python
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.prompts import ChatPromptTemplate
+
+# ---- RunnablePassthrough：透传输入 ----
+# 常用于并行链中，将原始输入传递到下游
+chain = RunnablePassthrough()
+result = chain.invoke({"key": "value"})
+# result = {"key": "value"}  原样返回
+
+# 配合 assign 添加新字段
+chain = RunnablePassthrough.assign(
+    upper=lambda x: x["text"].upper()
+)
+result = chain.invoke({"text": "hello"})
+# result = {"text": "hello", "upper": "HELLO"}
+
+# ---- RunnableLambda：包装任意函数 ----
+def preprocess(text: str) -> str:
+    return text.strip().lower()
+
+def word_count(text: str) -> int:
+    return len(text.split())
+
+# 方式一：直接传函数
+count_chain = RunnableLambda(word_count)
+result = count_chain.invoke("Hello World")
+# result = 2
+
+# 方式二：带错误处理的 Lambda
+def risky_function(input_data):
+    if not input_data:
+        raise ValueError("输入不能为空")
+    return process(input_data)
+
+safe_chain = RunnableLambda(risky_function).with_fallbacks(
+    [RunnableLambda(lambda x: "默认输出")]
+)
+
+# 实际 RAG 场景中的组合使用
+rag_chain = {
+    "context": retriever | RunnableLambda(format_docs),
+    "question": RunnablePassthrough()
+} | prompt | llm | StrOutputParser()
+```
+
+---
+
+### 自定义 Runnable
+
+```python
+from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.outputs import ChatGenerationChunk
+from typing import Any, Optional, Iterator
+
+class WordCounter(Runnable[str, dict]):
+    """自定义 Runnable：统计词数和字数"""
+
+    @property
+    def InputType(self):
+        return str
+
+    @property
+    def OutputType(self):
+        return dict
+
+    def invoke(self, input: str, config: Optional[RunnableConfig] = None) -> dict:
+        return {
+            "text": input,
+            "word_count": len(input.split()),
+            "char_count": len(input),
+            "line_count": len(input.splitlines())
+        }
+
+    def stream(self, input: str, config: Optional[RunnableConfig] = None) -> Iterator[dict]:
+        """流式输出：逐词返回统计"""
+        words = input.split()
+        for i, word in enumerate(words):
+            yield {
+                "word": word,
+                "index": i,
+                "partial_count": i + 1,
+                "total": len(words)
+            }
+
+# 使用
+counter = WordCounter()
+result = counter.invoke("Hello World from LangChain")
+# {"text": "...", "word_count": 4, "char_count": 27, "line_count": 1}
+
+# 组合到链中
+chain = counter | RunnableLambda(lambda d: f"共 {d['word_count']} 个词")
+result = chain.invoke("Hello World")
+# "共 2 个词"
+
+# 批量处理
+results = counter.batch(["Hello", "Hello World", "Hi there friend"])
+```
+
+---
+
+### 链式调用原理 (invoke / batch / stream)
+
+```python
+from langchain_core.runnables import Runnable, RunnableLambda, RunnableParallel
+from langchain_core.prompts import ChatPromptTemplate
+
+# ---- invoke: 单次调用 ----
+chain = prompt | llm | StrOutputParser()
+result = chain.invoke({"topic": "AI"})  # 同步调用
+# 调用链: prompt.invoke() -> llm.invoke() -> parser.invoke()
+
+# ---- batch: 并行批量调用 ----
+inputs = [{"topic": "AI"}, {"topic": "ML"}, {"topic": "DL"}]
+results = chain.batch(inputs)
+# 底层使用 asyncio.gather 并行执行，大幅提升吞吐
+
+# 自定义并发控制
+results = chain.batch(inputs, config={"max_concurrency": 2})
+
+# ---- stream: 流式输出 ----
+for chunk in chain.stream({"topic": "AI"}):
+    print(chunk, end="|")
+# 每个 chunk 是部分输出，实现逐 token 返回
+
+# ---- ainvoke / abatch / astream: 异步版本 ----
+import asyncio
+
+async def async_call():
+    result = await chain.ainvoke({"topic": "AI"})
+    results = await chain.abatch(inputs)
+
+    async for chunk in chain.astream({"topic": "AI"}):
+        print(chunk, end="")
+
+asyncio.run(async_call())
+
+# ---- 内部调度原理 ----
+# pipe 运算符 | 调用 RunnableSequence.__or__()
+# 创建 RunnableSequence(first, middle, last)
+# invoke 时依次调用: first.invoke() -> middle.invoke() -> last.invoke()
+# stream 时: first.stream() -> 逐 chunk -> middle.stream() -> ...
+# batch 时: 使用 gather 并行调用每个 input 的 invoke
+```
+
+---
+
+### 错误处理 (with_fallbacks / with_retry)
+
+```python
+from langchain_core.runnables import RunnableLambda
+import time
+
+# ---- with_fallbacks: 回退策略 ----
+def primary_llm(input_data):
+    """主模型（可能失败）"""
+    raise ConnectionError("API 限流")
+
+def fallback_llm(input_data):
+    """备用模型"""
+    return f"[Fallback] 处理结果: {input_data}"
+
+# 主模型失败时自动切换到备用
+chain = RunnableLambda(primary_llm).with_fallbacks(
+    [RunnableLambda(fallback_llm)],
+    exceptions_to_handle=(ConnectionError, TimeoutError)  # 只捕获特定异常
+)
+result = chain.invoke("test")
+# result = "[Fallback] 处理结果: test"
+
+# 多级回退
+chain = (
+    RunnableLambda(gpt4_call)           # 优先 GPT-4
+    .with_fallbacks([
+        RunnableLambda(claude_call),     # 回退 Claude
+        RunnableLambda(local_llm_call),  # 再回退本地模型
+    ])
+)
+
+# ---- with_retry: 重试策略 ----
+def unreliable_api(input_data):
+    if time.time() % 2 < 1:  # 随机失败
+        raise ConnectionError("临时错误")
+    return "成功"
+
+chain = RunnableLambda(unreliable_api).with_retry(
+    retry_if_exception_type=(ConnectionError,),
+    wait_exponential_jitter=True,  # 指数退避 + 抖动
+    stop_after_attempt=3,          # 最多重试3次
+)
+result = chain.invoke("test")
+
+# ---- 组合使用：先重试，再回退 ----
+chain = (
+    RunnableLambda(primary_api)
+    .with_retry(stop_after_attempt=3, retry_if_exception_type=(ConnectionError,))
+    .with_fallbacks([RunnableLambda(fallback_api)])
+)
+
+# 在链中使用
+from langchain_openai import ChatOpenAI
+
+primary_model = ChatOpenAI(model="gpt-4o", max_retries=3)
+fallback_model = ChatOpenAI(model="gpt-4o-mini")
+
+model_with_fallback = primary_model.with_fallbacks([fallback_model])
+robust_chain = prompt | model_with_fallback | StrOutputParser()
+```
+
+---
+
+## LangChain vs LangGraph vs CrewAI 对比
+
+### 架构对比表
+
+| 维度 | LangChain | LangGraph | CrewAI |
+|------|-----------|-----------|--------|
+| **核心抽象** | Chain（链） | Graph（状态图） | Agent + Task + Crew |
+| **控制流** | 线性管道（LCEL） | 任意图（含循环） | 顺序/并行/层级 |
+| **状态管理** | 隐式（Memory） | 显式（TypedDict + Reducer） | 隐式（内置 Memory） |
+| **多 Agent** | 需手动编排 | 图中多节点 | 原生支持（角色分工） |
+| **人工介入** | 回调方式 | interrupt_before/after | 无原生支持 |
+| **持久化** | 无原生支持 | Checkpointing（SQLite/PG） | 内置 Memory |
+| **可视化** | 困难 | Mermaid/Graphviz 导出 | 无 |
+| **学习曲线** | 中 | 高（需理解图概念） | 低（声明式） |
+| **生态** | 最大（集成多） | 同 LangChain 生态 | 独立生态 |
+| **适用规模** | 中小 | 大（生产级） | 中小 |
+| **流式支持** | LCEL 原生 | 原生（含 token 级） | 有限 |
+| **调试能力** | LangSmith | LangSmith + 图可视化 | 内置 verbose |
+
+### 适用场景
+
+```
+场景选择指南：
+
+1. 简单 RAG / 文档问答
+   → LangChain（LCEL 链即可）
+
+2. 单 Agent + 工具调用
+   → LangChain AgentExecutor 或 LangGraph
+
+3. 复杂多步推理 Agent（需循环/分支）
+   → LangGraph（唯一选择）
+
+4. 需要人工审批的流程
+   → LangGraph（interrupt 机制）
+
+5. 多角色协作（如：研究员+写手+编辑）
+   → CrewAI（最简单）或 LangGraph（更灵活）
+
+6. 生产级部署 + 可观测性
+   → LangGraph + LangSmith
+
+7. 快速原型 / MVP
+   → CrewAI（最快上手）
+
+8. 自定义复杂工作流
+   → LangGraph（子图 + 条件边 + 持久化）
+```
+
+### 选型建议
+
+```python
+# ---- 决策流程 ----
+"""
+1. 你的任务是否需要循环/条件分支/人工审批？
+   ├─ 是 → LangGraph
+   └─ 否 → 继续判断
+
+2. 是否需要多 Agent 角色协作？
+   ├─ 是 → 需要精细控制？
+   │   ├─ 是 → LangGraph
+   │   └─ 否 → CrewAI（更快上手）
+   └─ 否 → 继续判断
+
+3. 是否为简单的链式调用（RAG / 分类 / 翻译）？
+   ├─ 是 → LangChain（LCEL）
+   └─ 否 → LangGraph（通用选择）
+"""
+
+# ---- 混合使用示例 ----
+# LangGraph 中使用 LangChain 组件
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
+
+llm = ChatOpenAI(model="gpt-4o")
+tools = [search_tool, calculator_tool]
+
+# 一行代码创建 ReAct Agent（LangGraph 预构建）
+agent = create_react_agent(llm, tools)
+result = agent.invoke({"messages": [HumanMessage(content="...")]})
+
+# CrewAI Agent 包装为 LangGraph 节点
+def crew_node(state):
+    crew = Crew(agents=[...], tasks=[...], process=Process.sequential)
+    result = crew.kickoff(inputs={"topic": state["topic"]})
+    return {"result": result}
+
+graph = StateGraph(MyState)
+graph.add_node("crew_research", crew_node)  # CrewAI 作为图的一个节点
+graph.add_node("human_review", review_node)
+graph.add_edge("crew_research", "human_review")
+```
+
+**总结**：
+- **LangChain**：基础设施层，提供模型/工具/检索等组件
+- **LangGraph**：编排层，处理复杂控制流，生产级 Agent 首选
+- **CrewAI**：应用层，多角色协作场景最快落地
+- 三者不互斥，可在同一项目中混合使用

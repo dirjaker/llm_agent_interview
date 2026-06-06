@@ -811,3 +811,823 @@ class WeakCache:
     def set(self, key, value):
         self._cache[key] = value
 ```
+
+
+---
+
+## 十二、async 高级用法
+
+### 25. ⭐⭐⭐ Q: 如何实现异步上下文管理器（__aenter__/__aexit__）？
+
+**答**：
+
+```python
+# 异步上下文管理器 —— 实现 __aenter__ 和 __aexit__（均为协程）
+import asyncio
+import aiohttp
+
+class AsyncHTTPClient:
+    """异步 HTTP 客户端上下文管理器"""
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self.session: aiohttp.ClientSession | None = None
+
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(base_url=self.base_url)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+        return False  # 不抑制异常
+
+    async def get(self, path: str):
+        async with self.session.get(path) as resp:
+            return await resp.json()
+
+# 使用方式
+async def main():
+    async with AsyncHTTPClient("https://api.example.com") as client:
+        data = await client.get("/users")
+        print(data)
+
+# 使用 @asynccontextmanager 简化
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def managed_lock(lock: asyncio.Lock):
+    """带超时的异步锁"""
+    acquired = await asyncio.wait_for(lock.acquire(), timeout=5.0)
+    try:
+        yield lock
+    finally:
+        if acquired:
+            lock.release()
+
+async def critical_section():
+    lock = asyncio.Lock()
+    async with managed_lock(lock) as l:
+        await asyncio.sleep(0.1)  # 临界区操作
+```
+
+---
+
+### 26. ⭐⭐⭐ Q: asyncio.TaskGroup 的用法和优势？
+
+**答**：
+
+```python
+# TaskGroup —— Python 3.11+ 引入，替代 asyncio.gather
+# 核心优势：自动错误传播 + 结构化并发
+
+import asyncio
+
+async def fetch(url: str) -> str:
+    await asyncio.sleep(0.1)  # 模拟网络请求
+    return f"Response from {url}"
+
+# 使用 TaskGroup（推荐）
+async def fetch_all_taskgroup(urls: list[str]) -> list[str]:
+    results = []
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(fetch(url)) for url in urls]
+    # TaskGroup 退出时，所有任务已完成
+    results = [t.result() for t in tasks]
+    return results
+
+# 与 asyncio.gather 的区别
+async def fetch_all_gather(urls: list[str]) -> list[str]:
+    # gather 默认不会在第一个异常时取消其他任务
+    return await asyncio.gather(*[fetch(url) for url in urls])
+
+# TaskGroup 的异常处理
+async def risky_task(fail: bool):
+    if fail:
+        raise ValueError("Task failed!")
+    await asyncio.sleep(0.1)
+    return "ok"
+
+async def demo_taskgroup_error():
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(risky_task(fail=False))
+            tg.create_task(risky_task(fail=True))  # 会触发异常
+            tg.create_task(risky_task(fail=False))
+    except* ValueError as eg:
+        # Python 3.11 ExceptionGroup 语法
+        for exc in eg.exceptions:
+            print(f"Caught: {exc}")
+
+asyncio.run(demo_taskgroup_error())
+```
+
+---
+
+### 27. ⭐⭐⭐ Q: 异步生成器（async generator）的使用场景？
+
+**答**：
+
+```python
+# 异步生成器 —— async def + yield
+# 适用于：流式数据、分页 API、数据库游标
+
+import asyncio
+from collections.abc import AsyncIterator
+
+# 示例 1：流式读取大文件
+async def async_read_lines(filepath: str) -> AsyncIterator[str]:
+    with open(filepath, "r") as f:
+        for line in f:
+            await asyncio.sleep(0)  # 让出控制权
+            yield line.strip()
+
+# 示例 2：分页 API
+async def fetch_all_pages(base_url: str) -> AsyncIterator[dict]:
+    page = 1
+    while True:
+        # 模拟 API 调用
+        data = {"items": [f"item_{page}_{i}" for i in range(10)], "has_more": page < 5}
+        for item in data["items"]:
+            yield item
+        if not data["has_more"]:
+            break
+        page += 1
+
+# 示例 3：带速率限制的异步生成器
+async def rate_limited(items: list, delay: float = 0.1) -> AsyncIterator:
+    for item in items:
+        await asyncio.sleep(delay)
+        yield item
+
+# 使用 async for 消费
+async def main():
+    # 消费异步生成器
+    async for page in fetch_all_pages("https://api.example.com"):
+        print(page)
+
+    # 异步列表推导
+    results = [item async for item in rate_limited([1, 2, 3, 4, 5])]
+
+    # asyncitertools 风格
+    async def async_enumerate(aiterable, start=0):
+        n = start
+        async for item in aiterable:
+            yield n, item
+            n += 1
+
+    async for idx, val in async_enumerate(rate_limited(["a", "b", "c"])):
+        print(f"{idx}: {val}")
+
+asyncio.run(main())
+```
+
+---
+
+### 28. ⭐⭐⭐ Q: asyncio.Queue 实现生产者-消费者模式？
+
+**答**：
+
+```python
+import asyncio
+import random
+
+async def producer(queue: asyncio.Queue, name: str, count: int):
+    """生产者：生成任务放入队列"""
+    for i in range(count):
+        task = f"{name}_task_{i}"
+        await asyncio.sleep(random.uniform(0.01, 0.1))  # 模拟生产耗时
+        await queue.put(task)
+        print(f"[Producer {name}] produced: {task}")
+    # 发送结束信号
+    await queue.put(None)
+
+async def consumer(queue: asyncio.Queue, name: str):
+    """消费者：从队列取出任务处理"""
+    while True:
+        task = await queue.get()
+        if task is None:
+            # 通知其他消费者也结束
+            await queue.put(None)
+            break
+        await asyncio.sleep(random.uniform(0.05, 0.15))  # 模拟处理耗时
+        print(f"[Consumer {name}] processed: {task}")
+        queue.task_done()
+
+async def main():
+    queue = asyncio.Queue(maxsize=10)  # 有界队列，控制背压
+
+    # 启动 2 个生产者 + 3 个消费者
+    producers = [
+        asyncio.create_task(producer(queue, f"P{i}", 4))
+        for i in range(2)
+    ]
+    consumers = [
+        asyncio.create_task(consumer(queue, f"C{i}"))
+        for i in range(3)
+    ]
+
+    # 等待所有生产者完成
+    await asyncio.gather(*producers)
+    # 等待队列被完全消费
+    await queue.join()
+    # 消费者会通过 None 信号自行退出
+
+asyncio.run(main())
+
+# PriorityQueue —— 优先级队列
+async def priority_demo():
+    pq = asyncio.PriorityQueue()
+
+    # 放入 (优先级, 数据) 元组，数字越小优先级越高
+    await pq.put((3, "low priority"))
+    await pq.put((1, "high priority"))
+    await pq.put((2, "medium priority"))
+
+    while not pq.empty():
+        priority, task = await pq.get()
+        print(f"[P{priority}] {task}")
+    # 输出顺序: high → medium → low
+```
+
+---
+
+## 十三、Pydantic V2
+
+### 29. ⭐⭐⭐ Q: model_validator 和 field_validator 的区别？
+
+**答**：
+
+```python
+from pydantic import BaseModel, field_validator, model_validator
+
+class User(BaseModel):
+    name: str
+    password: str
+    password_confirm: str
+
+    # field_validator —— 验证单个字段
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name 不能为空")
+        return v.strip()  # 返回处理后的值
+
+    # mode="before" —— 在类型转换之前验证
+    @field_validator("password", mode="before")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("密码长度至少 8 位")
+        return v
+
+    # model_validator —— 验证多个字段之间的关系
+    @model_validator(mode="after")
+    def passwords_match(self) -> "User":
+        if self.password != self.password_confirm:
+            raise ValueError("两次密码不一致")
+        return self
+
+# mode="before" 的 model_validator 接收原始 dict
+class Config(BaseModel):
+    host: str
+    port: int
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_connection_string(cls, data: dict) -> dict:
+        # 支持 "host:port" 格式的输入
+        if "connection_string" in data:
+            host, port = data.pop("connection_string").split(":")
+            data["host"] = host
+            data["port"] = int(port)
+        return data
+
+# 使用
+config = Config(connection_string="localhost:8080")
+print(config)  # host='localhost' port=8080
+```
+
+---
+
+### 30. ⭐⭐⭐ Q: computed_field 的用途？
+
+**答**：
+
+```python
+from pydantic import BaseModel, computed_field
+from datetime import datetime
+
+class Order(BaseModel):
+    items: list[dict]  # [{"name": "item", "price": 10.0, "qty": 2}]
+    tax_rate: float = 0.08
+
+    @computed_field
+    @property
+    def subtotal(self) -> float:
+        """计算字段，自动包含在序列化输出中"""
+        return sum(item["price"] * item["qty"] for item in self.items)
+
+    @computed_field
+    @property
+    def tax(self) -> float:
+        return self.subtotal * self.tax_rate
+
+    @computed_field
+    @property
+    def total(self) -> float:
+        return self.subtotal + self.tax
+
+order = Order(
+    items=[
+        {"name": "Python Book", "price": 49.99, "qty": 1},
+        {"name": "USB Cable", "price": 9.99, "qty": 3},
+    ]
+)
+
+print(order.model_dump())
+# {
+#   'items': [...],
+#   'tax_rate': 0.08,
+#   'subtotal': 79.96,    ← computed_field 自动出现
+#   'tax': 6.3968,
+#   'total': 86.3568,
+# }
+
+# 与 @property 的区别：computed_field 会参与序列化
+# 普通 @property 不会出现在 model_dump() 中
+```
+
+---
+
+### 31. ⭐⭐⭐ Q: model_config 和 BaseSettings 的用法？
+
+**答**：
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import BaseSettings
+
+# model_config —— 控制模型行为
+class StrictModel(BaseModel):
+    model_config = ConfigDict(
+        strict=True,            # 严格模式，不做类型强制转换
+        frozen=True,            # 不可变（类似 frozen dataclass）
+        str_strip_whitespace=True,  # 自动去除字符串首尾空白
+        validate_default=True,      # 也验证默认值
+        extra="forbid",             # 禁止额外字段
+    )
+    name: str
+    value: int = 0
+
+# strict 模式下不会自动转换
+try:
+    StrictModel(name="test", value="123")  # ❌ 严格模式不接受字符串
+except Exception as e:
+    print(e)
+
+StrictModel(name="test", value=123)  # ✅
+
+# frozen 模式下不可修改
+m = StrictModel(name="test")
+try:
+    m.name = "other"  # ❌ ValidationError
+except Exception as e:
+    print(e)
+
+# BaseSettings —— 从环境变量读取配置
+class AppSettings(BaseSettings):
+    """自动从环境变量 / .env 文件读取"""
+    model_config = ConfigDict(
+        env_file=".env",
+        env_prefix="APP_",     # 环境变量前缀
+        case_sensitive=False,
+    )
+
+    database_url: str = "sqlite:///default.db"
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    debug: bool = False
+    secret_key: str = Field(..., min_length=16)  # 必填
+
+# 读取 APP_DATABASE_URL, APP_REDIS_HOST 等环境变量
+# settings = AppSettings()  # 如果缺少 SECRET_KEY 会报错
+
+# 嵌套 Settings
+class DatabaseSettings(BaseSettings):
+    host: str = "localhost"
+    port: int = 5432
+    name: str = "mydb"
+
+class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_prefix="APP_")
+    database: DatabaseSettings = DatabaseSettings()
+    debug: bool = False
+
+# 环境变量 APP_DATABASE__HOST=192.168.1.1 → database.host = "192.168.1.1"
+```
+
+---
+
+### 32. ⭐⭐⭐ Q: Pydantic V2 与 FastAPI 的最佳实践？
+
+**答**：
+
+```python
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel, Field, EmailStr, computed_field
+from datetime import datetime
+
+app = FastAPI()
+
+# 请求模型 —— 用于验证输入
+class UserCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50, examples=["Alice"])
+    email: EmailStr
+    age: int = Field(..., ge=0, le=150)
+
+# 响应模型 —— 控制输出，隐藏敏感字段
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    created_at: datetime
+
+    @computed_field
+    @property
+    def display_name(self) -> str:
+        return f"{self.name} <{self.email}>"
+
+# 更新模型 —— 所有字段可选
+class UserUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=50)
+    email: EmailStr | None = None
+    age: int | None = Field(None, ge=0, le=150)
+
+# 数据库模型
+class UserDB(UserCreate):
+    id: int
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {"from_attributes": True}  # 支持 ORM 对象转换
+
+# FastAPI 路由
+@app.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(user: UserCreate):
+    """请求体自动验证，response_model 自动过滤输出字段"""
+    db_user = UserDB(id=1, **user.model_dump())
+    return db_user  # 自动转换为 UserResponse
+
+@app.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(user_id: int):
+    user = UserDB(id=user_id, name="Alice", email="alice@example.com", age=25)
+    return user
+
+@app.patch("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: int, update: UserUpdate):
+    # model_dump(exclude_unset=True) 只返回显式设置的字段
+    update_data = update.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(400, "No fields to update")
+    # ... 执行更新
+    user = UserDB(id=user_id, name="Updated", email="u@example.com", age=30)
+    return user
+
+# 依赖注入中使用 Pydantic
+class PaginationParams(BaseModel):
+    page: int = Field(1, ge=1)
+    size: int = Field(20, ge=1, le=100)
+
+    @computed_field
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.size
+
+async def get_pagination(
+    page: int = 1, size: int = 20
+) -> PaginationParams:
+    return PaginationParams(page=page, size=size)
+
+@app.get("/items")
+async def list_items(pagination: PaginationParams = Depends(get_pagination)):
+    return {"page": pagination.page, "offset": pagination.offset}
+```
+
+---
+
+## 十四、Type Hints 高级
+
+### 33. ⭐⭐⭐ Q: Protocol 的结构化子类型（Structural Subtyping）？
+
+**答**：
+
+```python
+from typing import Protocol, runtime_checkable
+
+# Protocol —— 定义接口，不需要显式继承
+@runtime_checkable  # 使其可以在运行时用 isinstance 检查
+class Drawable(Protocol):
+    def draw(self) -> str: ...
+    @property
+    def color(self) -> str: ...
+
+# 不需要继承 Drawable，只要实现了 draw() 和 color 属性即可
+class Circle:
+    def __init__(self, radius: float, color: str):
+        self.radius = radius
+        self._color = color
+
+    def draw(self) -> str:
+        return f"Drawing circle with radius {self.radius}"
+
+    @property
+    def color(self) -> str:
+        return self._color
+
+class Square:
+    def __init__(self, side: float):
+        self.side = side
+
+    def draw(self) -> str:
+        return f"Drawing square with side {self.side}"
+
+    @property
+    def color(self) -> str:
+        return "black"
+
+# Circle 和 Square 都满足 Drawable Protocol（鸭子类型）
+def render(shape: Drawable) -> None:
+    print(f"{shape.color}: {shape.draw()}")
+
+render(Circle(5, "red"))    # ✅
+render(Square(3))           # ✅
+
+# 运行时检查
+print(isinstance(Circle(1, "blue"), Drawable))  # True
+print(isinstance("hello", Drawable))            # False
+
+# 与 ABC 的区别
+from abc import ABC, abstractmethod
+
+class AbstractShape(ABC):
+    @abstractmethod
+    def draw(self) -> str: ...
+
+# class BadShape(AbstractShape):  # ❌ 必须继承才能检查
+#     pass
+
+# Protocol: 不需要继承，任何实现了同名方法的类都满足
+# ABC: 必须显式继承，是名义子类型（Nominal Subtyping）
+```
+
+---
+
+### 34. ⭐⭐⭐ Q: TypeVar 和 Generic 实现泛型？
+
+**答**：
+
+```python
+from typing import TypeVar, Generic, Sequence
+
+T = TypeVar("T")
+K = TypeVar("K")
+V = TypeVar("V")
+
+# 泛型栈
+class Stack(Generic[T]):
+    def __init__(self) -> None:
+        self._items: list[T] = []
+
+    def push(self, item: T) -> None:
+        self._items.append(item)
+
+    def pop(self) -> T:
+        return self._items.pop()
+
+    def peek(self) -> T:
+        return self._items[-1]
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+# 使用泛型
+int_stack: Stack[int] = Stack()
+int_stack.push(1)
+int_stack.push(2)
+# int_stack.push("hello")  # type checker 会报错
+
+# 泛型字典
+class TypedMap(Generic[K, V]):
+    def __init__(self) -> None:
+        self._data: dict[K, V] = {}
+
+    def get(self, key: K) -> V | None:
+        return self._data.get(key)
+
+    def set(self, key: K, value: V) -> None:
+        self._data[key] = value
+
+# TypeVar 约束
+Numeric = TypeVar("Numeric", int, float, complex)
+
+def add(a: Numeric, b: Numeric) -> Numeric:
+    return a + b  # 只接受 int, float, complex
+
+# TypeVar bound
+class Comparable(Protocol):
+    def __lt__(self, other) -> bool: ...
+
+C = TypeVar("C", bound=Comparable)
+
+def find_min(items: Sequence[C]) -> C:
+    return min(items)
+
+# 自定义泛型容器
+from typing import Iterator
+
+class PaginatedResult(Generic[T]):
+    def __init__(self, items: list[T], total: int, page: int, size: int):
+        self.items = items
+        self.total = total
+        self.page = page
+        self.size = size
+
+    @property
+    def has_next(self) -> bool:
+        return self.page * self.size < self.total
+
+    def __iter__(self) -> Iterator[T]:
+        return iter(self.items)
+
+# 使用
+def get_users(page: int = 1) -> PaginatedResult["User"]:
+    ...
+```
+
+---
+
+### 35. ⭐⭐⭐ Q: Annotated 添加元数据？
+
+**答**：
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+# Annotated —— 为类型添加运行时元数据
+# 语法: Annotated[BaseType, metadata1, metadata2, ...]
+
+# 示例 1：与 Pydantic 结合
+class User(BaseModel):
+    # Field 的约束实际就是 Annotated 的应用
+    name: Annotated[str, Field(min_length=1, max_length=50)]
+    age: Annotated[int, Field(ge=0, le=150)]
+    email: Annotated[str, Field(pattern=r"^[\w.-]+@[\w.-]+\.\w+$")]
+
+# 示例 2：FastAPI 中的参数验证
+from fastapi import FastAPI, Query, Path, Body
+
+app = FastAPI()
+
+UserId = Annotated[int, Path(ge=1, description="用户 ID")]
+SearchQuery = Annotated[str, Query(min_length=1, max_length=100)]
+
+@app.get("/users/{user_id}")
+async def get_user(user_id: UserId, q: SearchQuery | None = None):
+    return {"user_id": user_id, "q": q}
+
+# 示例 3：自定义验证器元数据
+from dataclasses import dataclass
+
+class Positive:
+    """标记正数"""
+    pass
+
+class NonEmpty:
+    """标记非空字符串"""
+    pass
+
+PositiveInt = Annotated[int, Positive()]
+NonEmptyStr = Annotated[str, NonEmpty()]
+
+# 示例 4：用于文档/序列化的元数据
+SerializedField = Annotated[str, {"json_key": "field_name", "sensitive": True}]
+
+# 示例 5：类型别名组合
+from datetime import datetime
+
+Timestamp = Annotated[float, Field(description="Unix timestamp")]
+RequestId = Annotated[str, Field(min_length=16, max_length=64)]
+HttpUrl = Annotated[str, Field(pattern=r"https?://.*")]
+
+class LogEntry(BaseModel):
+    timestamp: Timestamp
+    request_id: RequestId
+    url: HttpUrl
+    message: str
+```
+
+---
+
+### 36. ⭐⭐⭐ Q: ParamSpec 实现装饰器类型标注？
+
+**答**：
+
+```python
+from typing import TypeVar, ParamSpec
+from functools import wraps
+import time
+import logging
+
+P = ParamSpec("P")  # 捕获参数规格
+R = TypeVar("R")    # 捕获返回类型
+
+# ParamSpec 让装饰器保留原函数的签名
+def timer(func: "Callable[P, R]") -> "Callable[P, R]":
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        print(f"{func.__name__} took {elapsed:.4f}s")
+        return result
+    return wrapper
+
+@timer
+def process_data(data: list[int], threshold: float = 0.5) -> dict:
+    return {"count": len(data), "mean": sum(data) / len(data)}
+
+# 类型检查器知道 process_data 的签名仍然是 (list[int], float) -> dict
+result = process_data([1, 2, 3], threshold=0.3)
+
+# 示例 2：带参数的装饰器
+def retry(
+    max_attempts: int = 3,
+    delay: float = 1.0,
+) -> "Callable[[Callable[P, R]], Callable[P, R]]":
+    def decorator(func: "Callable[P, R]") -> "Callable[P, R]":
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            last_exc: Exception | None = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exc = e
+                    if attempt < max_attempts - 1:
+                        time.sleep(delay * (2 ** attempt))
+            raise last_exc  # type: ignore
+        return wrapper
+    return decorator
+
+@retry(max_attempts=3, delay=0.5)
+def unreliable_api(url: str, timeout: float = 10.0) -> dict:
+    """类型检查器知道签名是 (str, float) -> dict"""
+    import random
+    if random.random() < 0.7:
+        raise ConnectionError("Failed")
+    return {"status": "ok"}
+
+# 示例 3：日志装饰器
+def log_call(
+    logger: logging.Logger,
+    level: int = logging.INFO,
+) -> "Callable[[Callable[P, R]], Callable[P, R]]":
+    def decorator(func: "Callable[P, R]") -> "Callable[P, R]":
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            logger.log(level, f"Calling {func.__name__}({args}, {kwargs})")
+            result = func(*args, **kwargs)
+            logger.log(level, f"{func.__name__} returned {result}")
+            return result
+        return wrapper
+    return decorator
+
+logger = logging.getLogger(__name__)
+
+@log_call(logger, level=logging.DEBUG)
+def calculate(x: int, y: int) -> int:
+    return x + y
+
+# 与 Concatenate 结合（高级用法）
+from typing import Concatenate, Callable
+
+def with_context(
+    func: "Callable[Concatenate[str, P], R]"
+) -> "Callable[P, R]":
+    """自动注入第一个参数"""
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        context = "auto_generated_context"
+        return func(context, *args, **kwargs)
+    return wrapper
+
+@with_context
+def process(context: str, data: list[int]) -> int:
+    print(f"Using context: {context}")
+    return sum(data)
+
+# 调用时不需要传 context
+result = process([1, 2, 3])  # context 自动注入
+```
