@@ -9,7 +9,7 @@
 [![Topics](https://img.shields.io/badge/专题-24-blue?style=flat-square)]()
 [![Questions](https://img.shields.io/badge/题目-420+-green?style=flat-square)]()
 [![Lines](https://img.shields.io/badge/代码量-55K+-orange?style=flat-square)]()
-[![Updated](https://img.shields.io/badge/更新-2025.06-red?style=flat-square)]()
+[![Updated](https://img.shields.io/badge/更新-2026.06-red?style=flat-square)]()
 
 *面向大模型应用工程师 / Agent 开发工程师的系统化面试准备*
 
@@ -146,10 +146,10 @@
 | 代码行数 | 55,000+ 行 |
 | 面试工具 | 5 个 |
 | 项目大小 | 1.7 MB |
-| 最后更新 | 2025 年 6 月 |
+| 最后更新 | 2026 年 6 月 |
 
 ---
 
 **⭐ 如果觉得有用，欢迎 Star！**
 
-*持续更新中 · 2025*
+*持续更新中 · 2026*
