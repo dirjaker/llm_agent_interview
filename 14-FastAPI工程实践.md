@@ -1,4 +1,4 @@
-# 19. FastAPI 工程实践
+# 14. FastAPI 工程实践
 
 > **LLM 后端标配**：FastAPI 是 LLM 应用后端的首选框架，异步、高性能、自动文档
 
@@ -333,6 +333,7 @@ async def upload(file: UploadFile):
 # 方式三：Celery（分布式任务队列）
 from celery import Celery
 
+
 celery_app = Celery(
     "tasks",
     broker="redis://localhost:6379/0",
@@ -494,7 +495,7 @@ project/
 │   ├── test_services/
 │   └── test_repositories/
 │
-├── alembic/                   # 数据库迁移
+   501|├── alembic/                   # 数据库迁移
 │   └── versions/
 │
 ├── Dockerfile

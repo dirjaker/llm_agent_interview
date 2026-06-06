@@ -1,4 +1,4 @@
-# 18. Python 高级编程
+# 01. Python 高级编程
 
 > **LLM 工程师必备**：Python 是 AI 工程的主力语言，高级特性在框架源码和生产代码中随处可见
 
@@ -317,7 +317,13 @@ class DatabaseConnection:
         return False  # 不抑制异常
 
 with DatabaseConnection("postgresql://...") as conn:
-    conn.execute("INSERT INTO ...")
+    conn.execute("SELECT 1")
+
+# 方式二：contextmanager 装饰器
+from contextlib import contextmanager
+
+@contextmanager
+    conn.execute("SELECT 1")
 
 # 方式二：contextmanager 装饰器
 from contextlib import contextmanager
@@ -492,7 +498,7 @@ class User:
     age = Validated(lambda x: 0 < x < 150, "年龄必须在 0-150 之间")
     email = Validated(lambda x: "@" in str(x), "邮箱格式不正确")
     
-    def __init__(self, age, email):
+   501|    def __init__(self, age, email):
         self.age = age      # 触发 __set__
         self.email = email
 
