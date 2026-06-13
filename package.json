@@ -1,0 +1,25 @@
+{
+  "name": "llm_agent_interview",
+  "version": "1.0.0",
+  "description": "LLM 应用 & Agent 开发 · 面试题与实战难题全集",
+  "private": true,
+  "scripts": {
+    "dev": "vitepress dev docs",
+    "build": "vitepress build docs",
+    "preview": "vitepress preview docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dirjaker/llm_agent_interview.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dirjaker/llm_agent_interview/issues"
+  },
+  "homepage": "https://github.com/dirjaker/llm_agent_interview#readme",
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
