@@ -18,77 +18,76 @@
   <rect width="1200" height="400" fill="url(#glow1)"/>
   <rect width="1200" height="400" fill="url(#glow2)"/>
 
-  <circle cx="379" cy="216" r="1.8" fill="white" opacity="0.5"/>
-  <circle cx="86" cy="71" r="3.1" fill="white" opacity="0.4"/>
-  <circle cx="78" cy="312" r="2.5" fill="white" opacity="0.3"/>
-  <circle cx="312" cy="350" r="2.5" fill="white" opacity="0.7"/>
-  <circle cx="394" cy="310" r="1.7" fill="white" opacity="0.6"/>
-  <circle cx="445" cy="231" r="3.5" fill="white" opacity="0.3"/>
-  <circle cx="182" cy="254" r="3.4" fill="white" opacity="0.8"/>
-  <circle cx="381" cy="308" r="2.8" fill="white" opacity="0.6"/>
-  <circle cx="414" cy="297" r="1.8" fill="white" opacity="0.3"/>
-  <circle cx="81" cy="92" r="1.8" fill="white" opacity="0.7"/>
-  <circle cx="62" cy="27" r="1.8" fill="white" opacity="0.4"/>
-  <circle cx="394" cy="135" r="2.7" fill="white" opacity="0.7"/>
-  <circle cx="41" cy="152" r="3.3" fill="white" opacity="0.6"/>
-  <circle cx="255" cy="306" r="1.9" fill="white" opacity="0.6"/>
-  <circle cx="298" cy="316" r="2.1" fill="white" opacity="0.7"/>
-  <circle cx="201" cy="212" r="2.4" fill="white" opacity="0.5"/>
-  <circle cx="422" cy="36" r="3.1" fill="white" opacity="0.7"/>
-  <circle cx="53" cy="188" r="2.7" fill="white" opacity="0.7"/>
-  <circle cx="413" cy="184" r="2.2" fill="white" opacity="0.4"/>
-  <circle cx="251" cy="60" r="3.4" fill="white" opacity="0.5"/>
-  <circle cx="70" cy="311" r="2.9" fill="white" opacity="0.7"/>
-  <circle cx="50" cy="252" r="1.7" fill="white" opacity="0.6"/>
-  <circle cx="273" cy="356" r="1.7" fill="white" opacity="0.4"/>
-  <circle cx="281" cy="102" r="3.2" fill="white" opacity="0.7"/>
-  <circle cx="36" cy="233" r="1.5" fill="white" opacity="0.4"/>
-  <circle cx="172" cy="275" r="3.0" fill="white" opacity="0.4"/>
-  <circle cx="314" cy="173" r="2.0" fill="white" opacity="0.5"/>
-  <circle cx="268" cy="209" r="3.0" fill="white" opacity="0.7"/>
-  <circle cx="69" cy="73" r="3.3" fill="white" opacity="0.3"/>
-  <circle cx="420" cy="294" r="1.8" fill="white" opacity="0.7"/>
-  <circle cx="115" cy="324" r="2.8" fill="white" opacity="0.6"/>
-  <circle cx="74" cy="356" r="2.8" fill="white" opacity="0.6"/>
-  <circle cx="367" cy="216" r="3.2" fill="white" opacity="0.7"/>
-  <circle cx="225" cy="344" r="2.2" fill="white" opacity="0.6"/>
-  <circle cx="314" cy="363" r="2.3" fill="white" opacity="0.8"/>
-  <circle cx="406" cy="104" r="2.6" fill="white" opacity="0.4"/>
-  <circle cx="182" cy="67" r="1.7" fill="white" opacity="0.8"/>
-  <circle cx="114" cy="169" r="3.2" fill="white" opacity="0.5"/>
-  <circle cx="343" cy="166" r="3.3" fill="white" opacity="0.5"/>
-  <circle cx="383" cy="299" r="3.4" fill="white" opacity="0.6"/>
-  <circle cx="285" cy="312" r="2.5" fill="white" opacity="0.4"/>
-  <circle cx="151" cy="211" r="2.3" fill="white" opacity="0.3"/>
-  <circle cx="116" cy="89" r="2.8" fill="white" opacity="0.5"/>
-  <circle cx="113" cy="102" r="2.5" fill="white" opacity="0.6"/>
-  <circle cx="190" cy="238" r="1.8" fill="white" opacity="0.6"/>
-  <circle cx="164" cy="129" r="2.1" fill="white" opacity="0.5"/>
-  <circle cx="168" cy="367" r="1.9" fill="white" opacity="0.6"/>
-  <circle cx="126" cy="107" r="1.8" fill="white" opacity="0.3"/>
-  <circle cx="293" cy="258" r="2.8" fill="white" opacity="0.6"/>
-  <circle cx="363" cy="242" r="1.5" fill="white" opacity="0.6"/>
+  <circle cx="363" cy="318" r="3.0" fill="white" opacity="0.6"/>
+  <circle cx="241" cy="238" r="2.6" fill="white" opacity="0.6"/>
+  <circle cx="308" cy="26" r="1.6" fill="white" opacity="0.6"/>
+  <circle cx="232" cy="261" r="2.3" fill="white" opacity="0.5"/>
+  <circle cx="124" cy="264" r="2.4" fill="white" opacity="0.5"/>
+  <circle cx="362" cy="310" r="3.5" fill="white" opacity="0.7"/>
+  <circle cx="326" cy="45" r="2.1" fill="white" opacity="0.5"/>
+  <circle cx="418" cy="227" r="1.8" fill="white" opacity="0.6"/>
+  <circle cx="238" cy="130" r="2.4" fill="white" opacity="0.6"/>
+  <circle cx="305" cy="262" r="2.5" fill="white" opacity="0.7"/>
+  <circle cx="68" cy="307" r="1.5" fill="white" opacity="0.6"/>
+  <circle cx="148" cy="279" r="3.1" fill="white" opacity="0.3"/>
+  <circle cx="421" cy="219" r="2.7" fill="white" opacity="0.5"/>
+  <circle cx="79" cy="278" r="1.7" fill="white" opacity="0.5"/>
+  <circle cx="368" cy="211" r="1.6" fill="white" opacity="0.7"/>
+  <circle cx="391" cy="372" r="2.6" fill="white" opacity="0.6"/>
+  <circle cx="398" cy="126" r="3.0" fill="white" opacity="0.7"/>
+  <circle cx="336" cy="305" r="2.4" fill="white" opacity="0.5"/>
+  <circle cx="370" cy="78" r="2.9" fill="white" opacity="0.4"/>
+  <circle cx="214" cy="254" r="2.8" fill="white" opacity="0.5"/>
+  <circle cx="141" cy="244" r="3.4" fill="white" opacity="0.8"/>
+  <circle cx="118" cy="150" r="2.2" fill="white" opacity="0.7"/>
+  <circle cx="55" cy="206" r="2.4" fill="white" opacity="0.8"/>
+  <circle cx="405" cy="43" r="3.4" fill="white" opacity="0.5"/>
+  <circle cx="241" cy="208" r="1.6" fill="white" opacity="0.8"/>
+  <circle cx="163" cy="241" r="2.1" fill="white" opacity="0.6"/>
+  <circle cx="189" cy="177" r="3.5" fill="white" opacity="0.8"/>
+  <circle cx="316" cy="258" r="2.2" fill="white" opacity="0.8"/>
+  <circle cx="330" cy="234" r="3.1" fill="white" opacity="0.7"/>
+  <circle cx="312" cy="146" r="2.7" fill="white" opacity="0.6"/>
+  <circle cx="193" cy="241" r="2.5" fill="white" opacity="0.3"/>
+  <circle cx="308" cy="136" r="1.8" fill="white" opacity="0.7"/>
+  <circle cx="257" cy="204" r="2.8" fill="white" opacity="0.6"/>
+  <circle cx="181" cy="361" r="2.5" fill="white" opacity="0.6"/>
+  <circle cx="197" cy="290" r="2.9" fill="white" opacity="0.6"/>
+  <circle cx="335" cy="323" r="2.7" fill="white" opacity="0.4"/>
+  <circle cx="119" cy="127" r="3.0" fill="white" opacity="0.7"/>
+  <circle cx="330" cy="175" r="2.9" fill="white" opacity="0.3"/>
+  <circle cx="64" cy="132" r="2.7" fill="white" opacity="0.6"/>
+  <circle cx="228" cy="365" r="2.4" fill="white" opacity="0.4"/>
+  <circle cx="319" cy="192" r="2.0" fill="white" opacity="0.3"/>
+  <circle cx="355" cy="340" r="1.6" fill="white" opacity="0.4"/>
+  <circle cx="39" cy="134" r="3.0" fill="white" opacity="0.8"/>
+  <circle cx="342" cy="274" r="2.4" fill="white" opacity="0.5"/>
+  <circle cx="345" cy="212" r="2.0" fill="white" opacity="0.7"/>
+  <circle cx="322" cy="48" r="2.7" fill="white" opacity="0.4"/>
+  <circle cx="177" cy="107" r="3.3" fill="white" opacity="0.5"/>
+  <circle cx="125" cy="370" r="1.9" fill="white" opacity="0.4"/>
+  <circle cx="134" cy="192" r="2.3" fill="white" opacity="0.6"/>
+  <circle cx="375" cy="111" r="3.3" fill="white" opacity="0.5"/>
 
-  <line x1="120" y1="49" x2="198" y2="90" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="174" y1="251" x2="250" y2="215" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="377" y1="253" x2="449" y2="232" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="299" y1="157" x2="341" y2="151" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="430" y1="85" x2="495" y2="124" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="230" y1="62" x2="303" y2="92" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="427" y1="109" x2="503" y2="75" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="189" y1="125" x2="246" y2="93" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="402" y1="115" x2="458" y2="137" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="412" y1="51" x2="479" y2="59" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="418" y1="329" x2="458" y2="313" stroke="white" stroke-width="0.5" opacity="0.12"/>
-  <line x1="294" y1="87" x2="357" y2="59" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="103" y1="338" x2="143" y2="309" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="324" y1="205" x2="380" y2="237" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="160" y1="40" x2="223" y2="84" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="80" y1="151" x2="142" y2="181" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="100" y1="125" x2="150" y2="77" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="192" y1="196" x2="243" y2="226" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="78" y1="115" x2="135" y2="151" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="345" y1="290" x2="391" y2="265" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="111" y1="66" x2="160" y2="66" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="264" y1="184" x2="338" y2="206" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="398" y1="223" x2="445" y2="239" stroke="white" stroke-width="0.5" opacity="0.12"/>
+  <line x1="208" y1="317" x2="251" y2="344" stroke="white" stroke-width="0.5" opacity="0.12"/>
 
-  <!-- 分隔线 4:6 位置 -->
   <line x1="480" y1="50" x2="480" y2="350" stroke="white" stroke-width="0.5" opacity="0.12"/>
 
-  <text x="510" y="120" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="44" font-weight="800" fill="white" letter-spacing="3">LLM & AGENT INTERVIEW</text>
-  <text x="510" y="185" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="500" fill="white" opacity="0.9" letter-spacing="3">LLM & Agent 面试题全集</text>
-  <text x="510" y="225" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="300" fill="white" opacity="0.5" letter-spacing="1.5">21 个专题 · 380+ 道题 · 41000+ 行 · 面试全覆盖</text>
-  <text x="510" y="275" font-family="'SF Mono','Fira Code','Consolas',monospace" font-size="12" fill="white" opacity="0.4" letter-spacing="1.5">VitePress · Markdown</text>
-  <line x1="510" y1="315" x2="1170" y2="315" stroke="white" stroke-width="0.5" opacity="0.1"/>
-  <text x="510" y="345" font-family="'SF Mono','Fira Code','Consolas',monospace" font-size="10" fill="white" opacity="0.3" letter-spacing="1">LLM · AGENT · INTERVIEW · AI ENGINEER</text>
+  <text x="540" y="120" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="44" font-weight="800" fill="white" letter-spacing="3">LLM & AGENT INTERVIEW</text>
+  <text x="540" y="185" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="500" fill="white" opacity="0.9" letter-spacing="3">LLM & Agent 面试题全集</text>
+  <text x="540" y="225" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="300" fill="white" opacity="0.5" letter-spacing="1.5">21 个专题 · 380+ 道题 · 41000+ 行 · 面试全覆盖</text>
+  <text x="540" y="275" font-family="'SF Mono','Fira Code','Consolas',monospace" font-size="12" fill="white" opacity="0.4" letter-spacing="1.5">VitePress · Markdown</text>
+  <line x1="540" y1="315" x2="1170" y2="315" stroke="white" stroke-width="0.5" opacity="0.1"/>
+  <text x="540" y="345" font-family="'SF Mono','Fira Code','Consolas',monospace" font-size="10" fill="white" opacity="0.3" letter-spacing="1">LLM · AGENT · INTERVIEW · AI ENGINEER</text>
 </svg>
