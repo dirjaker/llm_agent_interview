@@ -84,7 +84,7 @@
 
   <line x1="480" y1="50" x2="480" y2="350" stroke="white" stroke-width="0.5" opacity="0.12"/>
 
-  <text x="540" y="120" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="44" font-weight="800" fill="white" letter-spacing="3">LLM &amp; AGENT INTERVIEW</text>
+  <text x="540" y="120" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="40" font-weight="800" fill="white" letter-spacing="2">LLM &amp; AGENT INTERVIEW</text>
   <text x="540" y="185" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" font-weight="500" fill="white" opacity="0.9" letter-spacing="3">LLM &amp; Agent 面试题全集</text>
   <text x="540" y="225" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="14" font-weight="300" fill="white" opacity="0.5" letter-spacing="1.5">21 个专题 · 380+ 道题 · 41000+ 行 · 面试全覆盖</text>
   <text x="540" y="275" font-family="'SF Mono','Fira Code','Consolas',monospace" font-size="12" fill="white" opacity="0.4" letter-spacing="1.5">VitePress · Markdown</text>
