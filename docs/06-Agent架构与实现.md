@@ -1506,7 +1506,7 @@ class OutputParser:
 你的输出：{bad_output}
 
 请严格按以下 JSON schema 输出，不要添加任何其他文字：
-```json
+```json {v-pre}
 {{"key": "value"}}
 ```"""
 
