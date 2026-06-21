@@ -123,7 +123,7 @@ class MultiHeadAttention(nn.Module):
 **为什么不用一个大 Head（比如 d_k=512）？** 有两个核心原因：
 
 1. **子空间多样性**：一个大 head 只能在一个表示空间中计算注意力，而多个小 head 可以在不同的子空间中捕获不同类型的关系。比如一个 head 学到语法依赖，另一个学到语义相似性，另一个学到位置关系。
-2. **计算量相当但表达力更强**：8 个 head × d_k=64 的参数量和 1 个 head × d_k=512 差不多，但多头注意力的表达能力更强。这就像一个团队中有多样化背景的成员，比所有人都来自同一个专业更能解决复杂问题。
+2. **计算量相当但表达力更强**：8 个 head &times; d_k=64 的参数量和 1 个 head &times; d_k=512 差不多，但多头注意力的表达能力更强。这就像一个团队中有多样化背景的成员，比所有人都来自同一个专业更能解决复杂问题。
 
 **追问：**
 - Q: 所有 head 学到的东西一样怎么办？
@@ -332,7 +332,7 @@ print(f"LLaMA-3: {len(tok2.encode(text))} tokens")
 
 **追问：**
 - Q: 词表大小怎么选？
-- A: 一般在 32K-150K 之间权衡。词表越大：embedding 层参数越多（词表 × 隐藏维度），但序列越短，推理越快。词表越小：embedding 参数少，但序列长，推理慢。LLaMA-3 从 32K 扩到 128K 就是为了提高多语言和代码的 token 效率。
+- A: 一般在 32K-150K 之间权衡。词表越大：embedding 层参数越多（词表 &times; 隐藏维度），但序列越短，推理越快。词表越小：embedding 参数少，但序列长，推理慢。LLaMA-3 从 32K 扩到 128K 就是为了提高多语言和代码的 token 效率。
 
 ---
 
@@ -742,7 +742,7 @@ prompt = """回答问题时，请在每个事实性陈述后标注来源。
 
 **为什么原始 Transformer 只能处理短序列？**
 
-1. **显存问题**：Self-Attention 需要存储 n×n 的注意力矩阵，n=4K 时约 16M 个元素，n=128K 时约 16B 个元素，显存爆炸
+1. **显存问题**：Self-Attention 需要存储 n&times;n 的注意力矩阵，n=4K 时约 16M 个元素，n=128K 时约 16B 个元素，显存爆炸
 2. **位置编码泛化**：绝对位置编码在训练长度之外效果急剧下降
 3. **注意力稀释**：序列太长时，注意力被分散到太多位置，重要信息被"淹没"
 
@@ -811,7 +811,7 @@ GPU 内存层次（从快到慢）：
 └─────────────────────┘
 ```
 
-**标准注意力的问题：** 需要将完整的 n×n 注意力矩阵 S = QK^T 存入 HBM，然后读出来做 softmax，再存回去，再读出来和 V 相乘。大量的 **数据搬运（IO）** 成为瓶颈，而不是计算本身。
+**标准注意力的问题：** 需要将完整的 n&times;n 注意力矩阵 S = QK^T 存入 HBM，然后读出来做 softmax，再存回去，再读出来和 V 相乘。大量的 **数据搬运（IO）** 成为瓶颈，而不是计算本身。
 
 **Flash Attention 的核心思想：分块计算（Tiling）。**
 
@@ -850,7 +850,7 @@ def flash_attention_forward(Q, K, V, block_size=256):
 
 1. **分块（Tiling）**：将 Q、K、V 分成小块，每次只在 SRAM 中处理一小块，避免大量 HBM 读写
 2. **在线 Softmax**：不需要先计算完所有分数再 softmax，而是边计算边更新（通过维护 running max 和 running sum）
-3. **不存储注意力矩阵**：n×n 的注意力矩阵从不完整写入 HBM，显存从 O(n²) 降到 O(n)
+3. **不存储注意力矩阵**：n&times;n 的注意力矩阵从不完整写入 HBM，显存从 O(n²) 降到 O(n)
 
 **效果：**
 - 训练速度提升 2-4 倍
@@ -1691,7 +1691,7 @@ Q,K,V → 计算 S=QK^T (写入HBM) → 读取S → Softmax (写入HBM)
 
 **2. FlashAttention 的 Tiling 策略**
 
-核心思想：将 Q、K、V 分成小块（block），在 SRAM（片上内存，~20 TB/s）中完成计算，避免将完整的 N×N 注意力矩阵写入 HBM。
+核心思想：将 Q、K、V 分成小块（block），在 SRAM（片上内存，~20 TB/s）中完成计算，避免将完整的 N&times;N 注意力矩阵写入 HBM。
 
 ```python
 def flash_attention(Q, K, V, block_size=64):
@@ -1750,7 +1750,7 @@ FlashAttention 的数学输出与标准 Attention **完全相同**（up to float
 
 ### 追问
 
-1. **FlashAttention 如何处理反向传播？**（需要重新计算注意力矩阵（recomputation），不保存 N×N 的 S 矩阵，用显存换计算）
+1. **FlashAttention 如何处理反向传播？**（需要重新计算注意力矩阵（recomputation），不保存 N&times;N 的 S 矩阵，用显存换计算）
 2. **FlashAttention 和 PagedAttention（vLLM）的关系？**（FlashAttention 优化单次注意力计算的 IO；PagedAttention 解决 KV Cache 的内存碎片问题，两者互补）
 3. **在实际项目中如何使用 FlashAttention？**（transformers 中设置 `attn_implementation="flash_attention_2"`；或直接用 `flash_attn` 库）
 

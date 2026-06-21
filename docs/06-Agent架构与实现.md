@@ -1506,8 +1506,8 @@ class OutputParser:
 你的输出：{bad_output}
 
 请严格按以下 JSON schema 输出，不要添加任何其他文字：
-```json {v-pre}
-{{"key": "value"}}
+```json
+&#123;&#123;"key": "value"&#125;&#125;
 ```"""
 
     def fallback_parse(self, raw_output, expected_format):

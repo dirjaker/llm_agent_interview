@@ -55,10 +55,10 @@
 
 | 模型 | 参数量 | 推荐 GPU | 自部署成本估算 | 备注 |
 |------|--------|---------|--------------|------|
-| Llama 4 Maverick | 400B (MoE 17B active) | 8× A100 80G | ~$8/h | Meta 开源 |
-| Llama 4 Scout | 109B (MoE 17B active) | 4× A100 80G | ~$4/h | 轻量版 |
-| Qwen3-30B-A3B | 30B (MoE 3B active) | 1× A100 | ~$1.5/h | 极致性价比 |
-| DeepSeek-V3 | 671B (MoE 37B active) | 8× H100 | ~$12/h | 自部署旗舰 |
+| Llama 4 Maverick | 400B (MoE 17B active) | 8&times; A100 80G | ~$8/h | Meta 开源 |
+| Llama 4 Scout | 109B (MoE 17B active) | 4&times; A100 80G | ~$4/h | 轻量版 |
+| Qwen3-30B-A3B | 30B (MoE 3B active) | 1&times; A100 | ~$1.5/h | 极致性价比 |
+| DeepSeek-V3 | 671B (MoE 37B active) | 8&times; H100 | ~$12/h | 自部署旗舰 |
 
 ---
 
