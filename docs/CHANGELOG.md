@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-06-23
+
+### 🚀 Phase 7 · 前沿专题 (2025-2026)
+
+新增 6 个前沿专题章节：
+
+- **28 - 前沿大模型架构**：MoE、MLA、推理增强模型、多模态原生架构、高效推理
+- **29 - Agent Loop Engineering**：ReAct、Reflexion、循环控制、并行循环、状态管理
+- **30 - Hermes Engineering**：技能系统、记忆架构、任务委派、上下文工程、安全边界
+- **31 - Context Engineering**：上下文窗口管理、RAG vs Long Context、压缩技术、Lost in the Middle
+- **32 - Agentic Coding**：Claude Code、Cursor、代码Agent架构、质量控制、安全边界
+- **33 - Compound AI Systems**：模型路由、级联、集成、工具编排、成本优化
+
+更新 README 统计数据：33 个专题、500+ 道题、80000+ 行
+
+---
+
 ## 2026-06-22
 
 ### 文档维护

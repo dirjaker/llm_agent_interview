@@ -68,7 +68,7 @@ export default defineConfig({
         ]
       },
       {
-        text: '⚫ Phase 6 · 面试冲刺',
+        text: '🔴 Phase 6 · 面试冲刺',
         collapsed: false,
         items: [
           { text: '23 - 大模型前沿方向', link: '/06-面试冲刺/23-大模型前沿方向' },
@@ -76,6 +76,18 @@ export default defineConfig({
           { text: '25 - 多模态应用开发', link: '/06-面试冲刺/25-多模态应用开发' },
           { text: '26 - Embedding与向量数据库', link: '/06-面试冲刺/26-Embedding与向量数据库' },
           { text: '27 - 知识图谱与GraphRAG', link: '/06-面试冲刺/27-知识图谱与GraphRAG' }
+        ]
+      },
+      {
+        text: '🚀 Phase 7 · 前沿专题 (2025-2026)',
+        collapsed: false,
+        items: [
+          { text: '28 - 前沿大模型架构', link: '/07-前沿专题/28-前沿大模型架构' },
+          { text: '29 - Agent Loop Engineering', link: '/07-前沿专题/29-Agent-Loop-Engineering' },
+          { text: '30 - Hermes Engineering', link: '/07-前沿专题/30-Hermes-Engineering' },
+          { text: '31 - Context Engineering', link: '/07-前沿专题/31-Context-Engineering' },
+          { text: '32 - Agentic Coding', link: '/07-前沿专题/32-Agentic-Coding' },
+          { text: '33 - Compound AI Systems', link: '/07-前沿专题/33-Compound-AI-Systems' }
         ]
       },
       {
