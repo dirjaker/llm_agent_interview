@@ -91,6 +91,16 @@ export default defineConfig({
         ]
       },
       {
+        text: '🧮 Phase 8 · ML/DL 基础',
+        collapsed: false,
+        items: [
+          { text: '34 - 经典机器学习基础', link: '/34-经典机器学习基础' },
+          { text: '35 - 深度学习核心机制', link: '/35-深度学习核心机制' },
+          { text: '36 - 优化器与训练技巧', link: '/36-优化器与训练技巧' },
+          { text: '37 - NLP基础与技术演进', link: '/37-NLP基础与技术演进' }
+        ]
+      },
+      {
         text: '📎 面试工具箱',
         collapsed: false,
         items: [

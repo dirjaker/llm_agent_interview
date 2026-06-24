@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "LLM Agent Interview"
   text: "面试题与实战难题全集"
-  tagline: "27 个专题 · 450+ 道面试题 · 56,000+ 行详解 · 9 个面试工具"
+  tagline: "31 个专题 · 550+ 道面试题 · 62,000+ 行详解 · 9 个面试工具"
   actions:
     - theme: brand
       text: 开始学习
@@ -41,6 +41,10 @@ features:
     title: Phase 6 · 面试冲刺
     details: 前沿方向、行为面试、多模态、Embedding、知识图谱
     link: /06-面试冲刺/23-大模型前沿方向
+  - icon: 🧮
+    title: Phase 8 · ML/DL 基础
+    details: 经典机器学习、深度学习机制、优化器与训练技巧、NLP 技术演进
+    link: /34-经典机器学习基础
   - icon: 📎
     title: 面试工具箱
     details: 速查手册、Top 50 高频题、术语表、公司面试风格、Debug 场景、系统设计模板
