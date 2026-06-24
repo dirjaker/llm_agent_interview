@@ -110,6 +110,15 @@ export default defineConfig({
         ]
       },
       {
+        text: '🔥 Phase 10 · 进阶专题',
+        collapsed: false,
+        items: [
+          { text: '41 - LangChain进阶实战', link: '/08-进阶专题/41-LangChain进阶实战' },
+          { text: '42 - RAG进阶与工程实战', link: '/08-进阶专题/42-RAG进阶与工程实战' },
+          { text: '43 - Agent进阶与多智能体', link: '/08-进阶专题/43-Agent进阶与多智能体' }
+        ]
+      },
+      {
         text: '📎 面试工具箱',
         collapsed: false,
         items: [
