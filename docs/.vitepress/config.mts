@@ -101,6 +101,15 @@ export default defineConfig({
         ]
       },
       {
+        text: '🧪 Phase 9 · 实战与工程',
+        collapsed: false,
+        items: [
+          { text: '38 - RLHF与模型对齐', link: '/38-RLHF与模型对齐' },
+          { text: '39 - Agent开发实战', link: '/39-Agent开发实战' },
+          { text: '40 - LLM应用工程实战', link: '/40-LLM应用工程实战' }
+        ]
+      },
+      {
         text: '📎 面试工具箱',
         collapsed: false,
         items: [

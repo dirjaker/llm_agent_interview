@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "LLM Agent Interview"
   text: "面试题与实战难题全集"
-  tagline: "31 个专题 · 550+ 道面试题 · 62,000+ 行详解 · 9 个面试工具"
+  tagline: "34 个专题 · 640+ 道面试题 · 64,000+ 行详解 · 9 个面试工具"
   actions:
     - theme: brand
       text: 开始学习
