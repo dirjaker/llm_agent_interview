@@ -119,6 +119,16 @@ export default defineConfig({
         ]
       },
       {
+        text: '🏗️ Phase 11 · 大模型网关与运维',
+        collapsed: false,
+        items: [
+          { text: '44 - LLM网关架构设计', link: '/09-大模型网关与运维/44-LLM网关架构设计' },
+          { text: '45 - Token计量与成本治理', link: '/09-大模型网关与运维/45-Token计量与成本治理' },
+          { text: '46 - 可观测性与限流', link: '/09-大模型网关与运维/46-可观测性与限流' },
+          { text: '47 - 高可用与故障转移', link: '/09-大模型网关与运维/47-高可用与故障转移' }
+        ]
+      },
+      {
         text: '📎 面试工具箱',
         collapsed: false,
         items: [
