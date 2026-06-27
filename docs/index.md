@@ -2,9 +2,9 @@
 layout: home
 
 hero:
-  name: "LLM Agent Interview"
+  name: "LLM & Agent 面试题全集"
   text: "面试题与实战难题全集"
-  tagline: "34 个专题 · 640+ 道面试题 · 64,000+ 行详解 · 9 个面试工具"
+  tagline: "47 个专题 · 600+ 道面试题 · 82,000+ 行详解 · 9 个面试工具"
   actions:
     - theme: brand
       text: 开始学习
@@ -37,17 +37,33 @@ features:
     title: Phase 5 · 生产实战
     details: 生产环境实战、系统设计题、算法与编码题
     link: /05-生产实战/20-生产环境实战
-  - icon: ⚫
+  - icon: 🟡
     title: Phase 6 · 面试冲刺
     details: 前沿方向、行为面试、多模态、Embedding、知识图谱
     link: /06-面试冲刺/23-大模型前沿方向
-  - icon: 🧮
+  - icon: 🟢
+    title: Phase 7 · 前沿专题
+    details: 前沿大模型架构、Agent Loop、Context Engineering、Agentic Coding
+    link: /07-前沿专题/28-前沿大模型架构
+  - icon: 🔵
     title: Phase 8 · ML/DL 基础
-    details: 经典机器学习、深度学习机制、优化器与训练技巧、NLP 技术演进
+    details: 经典机器学习、深度学习机制、优化器、NLP 技术演进、RLHF
     link: /34-经典机器学习基础
-  - icon: 📎
+  - icon: 🟣
+    title: Phase 9 · 实战工程
+    details: Agent 开发实战、LLM 应用工程实践
+    link: /39-Agent开发实战
+  - icon: 🟠
+    title: Phase 10 · 进阶专题
+    details: LangChain 进阶实战、RAG 进阶工程、Agent 多智能体进阶
+    link: /08-进阶专题/41-LangChain进阶实战
+  - icon: ⚪
+    title: Phase 11 · 网关运维
+    details: LLM 网关架构、Token 治理、可观测性、高可用
+    link: /09-大模型网关与运维/44-LLM网关架构设计
+  - icon: 📦
     title: 面试工具箱
-    details: 速查手册、Top 50 高频题、术语表、公司面试风格、Debug 场景、系统设计模板
+    details: 速查表、Top50 高频题、术语表、公司面试风格、调试场景、系统设计模板
     link: /工具箱/CHEATSHEET
 ---
 
