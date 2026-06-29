@@ -7,6 +7,69 @@
 
 ## 一、Transformer 架构
 
+> **论文：** [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (Vaswani et al., 2017)
+> **定位：** 现代 LLM 的基石架构。GPT 系列用了 Decoder-only，BERT 用了 Encoder-only，但核心组件都来自这里。
+
+### 经典架构总览
+
+在深入每个组件之前，先建立全局认知。下图是原论文中的 Encoder-Decoder 结构：
+
+```
+                    ┌──────────────────────────┐
+                    │      输出概率分布          │
+                    │   Output Probabilities    │
+                    └────────────┬─────────────┘
+                                 │
+                    ┌────────────▼─────────────┐
+                    │     Softmax + Linear      │
+                    └────────────┬─────────────┘
+                                 │
+    ┌────────────────────────────┼──────────────────────┐
+    │        ENCODER (×N)        │    DECODER (×N)      │
+    │  ┌──────────────────────┐  │  ┌─────────────────┐ │
+    │  │   Add & Norm ────────│  │  │ Add & Norm ─────│ │
+    │  │       ↑              │  │  │      ↑          │ │
+    │  │  Feed Forward        │  │  │ Feed Forward    │ │
+    │  │       ↑              │  │  │      ↑          │ │
+    │  │   Add & Norm ────────│  │  │ Add & Norm ─────│ │
+    │  │       ↑              │  │  │      ↑          │ │
+    │  │  ┌──────────────┐    │  │  │ Cross-Attention │─┼─── 来自 Encoder 输出
+    │  │  │Multi-Head    │    │  │  │      ↑          │ │
+    │  │  │Self-Attention│    │  │  │ Add & Norm ─────│ │
+    │  │  └──────────────┘    │  │  │      ↑          │ │
+    │  └──────────────────────┘  │  │ Masked          │ │
+    │                            │  │ Multi-Head      │ │
+    │                            │  │ Self-Attention  │ │
+    │                            │  └─────────────────┘ │
+    └──────────┬─────────────────┴──────────┬──────────┘
+               │                            │
+    ┌──────────▼──────────┐     ┌──────────▼──────────┐
+    │ Positional Encoding │     │ Positional Encoding │
+    └──────────┬──────────┘     └──────────┬──────────┘
+               │                            │
+    ┌──────────▼──────────┐     ┌──────────▼──────────┐
+    │  Input Embedding    │     │  Output Embedding   │
+    └──────────┬──────────┘     └──────────┬──────────┘
+               │                            │
+        输入 Token 序列              输出 Token 序列 (右移)
+```
+
+**三个核心概念串讲（5 分钟建立直觉）：**
+
+1. **Self-Attention** — 每个 token 看序列中所有其他 token，"我应该关注谁？"
+2. **Multi-Head** — 多个注意力"视角"并行工作，"从不同角度理解一句话"
+3. **残差连接 + Layer Norm** — 信息高速公路，梯度不消失，训练更稳定
+
+**当今 LLM 的变体关系：**
+
+| 架构类型 | 代表模型 | 用了 Transformer 的哪部分 | 适用场景 |
+|----------|----------|--------------------------|----------|
+| **Encoder-only** | BERT, RoBERTa | 只用左边 Encoder | 理解任务（分类、NER） |
+| **Decoder-only** | GPT-3/4, LLaMA, Qwen | 只用右边 Decoder（去掉 Cross-Attention） | **生成任务（当前主流）** |
+| **Encoder-Decoder** | T5, BART, GLM | 完整结构 | 翻译、摘要 |
+
+> 💡 **面试重点：** 面试中画架构图是高频要求。至少要能画出 Encoder/Decoder 分别包含哪些子层、残差连接怎么连、以及 "Add & Norm" 的 Post-LN vs Pre-LN 的区别（GPT 用的是 Pre-LN，即先 Norm 再 Attention/FFN）。
+
 ---
 
 ### Q1: Transformer 的核心思想是什么？为什么取代了 RNN？ ⭐⭐
